@@ -774,6 +774,7 @@ def fetch_bucket(
     exclude: Optional[set[int]] = None,
     topics: Optional[list[str]] = None,
     difficulties: Optional[list[str]] = None,
+    random_order: bool = False,
 ) -> list[sqlite3.Row]:
     if limit <= 0:
         return []
@@ -796,6 +797,7 @@ def fetch_bucket(
         placeholders = ",".join("?" for _ in exclude)
         exclude_sql = f" AND id NOT IN ({placeholders})"
         bind.extend(exclude)
+    order_by = "RANDOM()" if random_order else "source_id IS NULL, source_id, id"
     return conn.execute(
         f"""
         SELECT *
@@ -806,7 +808,7 @@ def fetch_bucket(
           {topic_sql}
           {difficulty_sql}
           {exclude_sql}
-        ORDER BY source_id IS NULL, source_id, id
+        ORDER BY {order_by}
         LIMIT ?
         """,
         (*bind, limit),
@@ -903,6 +905,21 @@ def choose_items(
 
     selected: list[sqlite3.Row] = []
     selected_ids: set[int] = set()
+
+    review_injection_count = min(count, max(1, count // 5))
+    review_rows = fetch_bucket(
+        conn,
+        domain,
+        review_injection_count,
+        "needs_review = 1",
+        (),
+        selected_ids,
+        topics,
+        difficulties,
+        True,
+    )
+    selected.extend(review_rows)
+    selected_ids.update(row["id"] for row in review_rows)
 
     for where, params in (
         ("seen_count = 0", ()),
@@ -1256,6 +1273,41 @@ def active_sessions(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     ]
 
 
+def completed_sessions(conn: sqlite3.Connection, limit: int = 50) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT ps.*,
+               COUNT(psi.id) AS item_count,
+               SUM(CASE WHEN psi.correct = 1 THEN 1 ELSE 0 END) AS correct_count,
+               SUM(CASE WHEN psi.correct = 0 THEN 1 ELSE 0 END) AS wrong_count
+        FROM practice_sessions ps
+        JOIN practice_session_items psi ON psi.session_id = ps.id
+        WHERE ps.status = 'completed' AND ps.mode IN ('test', 'review')
+        GROUP BY ps.id
+        ORDER BY ps.completed_at DESC, ps.id DESC
+        LIMIT ?
+        """,
+        (max(1, min(limit, 200)),),
+    ).fetchall()
+    return [
+        {
+            "session_id": row["id"],
+            "domain": row["domain"],
+            "mode": row["mode"],
+            "requested_count": row["requested_count"],
+            "count": row["item_count"],
+            "score": row["score"],
+            "correct_count": row["correct_count"] or 0,
+            "wrong_count": row["wrong_count"] or 0,
+            "filters": parse_json(row["filters_json"], {}),
+            "updated_at": row["updated_at"],
+            "created_at": row["created_at"],
+            "completed_at": row["completed_at"],
+        }
+        for row in rows
+    ]
+
+
 def resolve_local_file(locator: str) -> Path:
     locator = locator.strip()
     if not locator:
@@ -1488,18 +1540,31 @@ def reset_domain_progress(conn: sqlite3.Connection, domain: str) -> dict[str, An
         "SELECT COUNT(*) AS total FROM practice_sessions WHERE domain = ?",
         (domain,),
     ).fetchone()["total"]
+    in_progress_session_count = conn.execute(
+        """
+        SELECT COUNT(*) AS total
+        FROM practice_sessions
+        WHERE domain = ? AND status = 'in_progress'
+        """,
+        (domain,),
+    ).fetchone()["total"]
 
     conn.execute("DELETE FROM attempts WHERE domain = ?", (domain,))
     conn.execute(
         """
         DELETE FROM practice_session_items
         WHERE session_id IN (
-            SELECT id FROM practice_sessions WHERE domain = ?
+            SELECT id
+            FROM practice_sessions
+            WHERE domain = ? AND status = 'in_progress'
         )
         """,
         (domain,),
     )
-    conn.execute("DELETE FROM practice_sessions WHERE domain = ?", (domain,))
+    conn.execute(
+        "DELETE FROM practice_sessions WHERE domain = ? AND status = 'in_progress'",
+        (domain,),
+    )
     conn.execute(
         """
         UPDATE items
@@ -1519,7 +1584,8 @@ def reset_domain_progress(conn: sqlite3.Connection, domain: str) -> dict[str, An
         "domain": domain,
         "items_reset": item_count,
         "attempts_deleted": attempt_count,
-        "sessions_deleted": session_count,
+        "sessions_deleted": in_progress_session_count,
+        "completed_sessions_kept": session_count - in_progress_session_count,
     }
 
 
@@ -1590,6 +1656,9 @@ class PrepHandler(BaseHTTPRequestHandler):
                 self.send_json(taxonomy())
             elif path == "/api/sessions/active":
                 self.send_json({"sessions": active_sessions(conn)})
+            elif path == "/api/sessions/completed":
+                limit = int(query.get("limit", ["50"])[0])
+                self.send_json({"sessions": completed_sessions(conn, limit)})
             elif path == "/api/session":
                 self.send_json(
                     session_response(conn, int(query.get("session_id", ["0"])[0]))

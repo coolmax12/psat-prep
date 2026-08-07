@@ -27,6 +27,7 @@ const state = {
   stats: null,
   sources: [],
   activeSessions: [],
+  completedSessions: [],
   taxonomy: fallbackTaxonomy,
   session: null,
   index: 0,
@@ -244,6 +245,19 @@ function freshCount(stats = {}) {
   return `${stats.unseen || 0}/${stats.total || 0}`;
 }
 
+function formatDateTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString([], {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function renderActiveSessions() {
   const target = $("#active-session-list");
   if (!state.activeSessions.length) {
@@ -272,6 +286,49 @@ function renderActiveSessions() {
   `;
   $$("[data-resume-session]", target).forEach((button) => {
     button.addEventListener("click", () => resumeSession(button.dataset.resumeSession));
+  });
+}
+
+function renderTestHistory() {
+  const panel = $("#history-panel");
+  if (!panel) return;
+  if (!state.completedSessions.length) {
+    panel.innerHTML = `
+      <div class="empty-state">
+        <div>
+          <h3>No completed tests yet</h3>
+          <p>Completed tests will appear here with all questions and explanations.</p>
+        </div>
+      </div>
+    `;
+    return;
+  }
+  panel.innerHTML = `
+    <div class="history-list">
+      ${state.completedSessions
+        .map((session) => {
+          const label = `${domains[session.domain]} ${
+            session.mode === "review" ? "Review" : "Test"
+          }`;
+          const filterText = filterSummary(session.domain, session.filters);
+          return `
+            <button class="history-row" data-history-session="${session.session_id}">
+              <span>
+                <b>${label}</b>
+                <small>${formatDateTime(session.completed_at)}</small>
+              </span>
+              <span>
+                <b>${session.score}/${session.count}</b>
+                <small>${session.wrong_count || 0} missed${filterText ? ` / ${filterText}` : ""}</small>
+              </span>
+            </button>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+  $$("[data-history-session]", panel).forEach((button) => {
+    button.addEventListener("click", () => viewHistorySession(button.dataset.historySession));
   });
 }
 
@@ -377,7 +434,7 @@ function renderSettings() {
             <div class="metric"><b>${stats.wrong_answers || 0}</b><span>Wrong</span></div>
           </div>
           <p class="settings-note">
-            Clears attempts, saved sessions (${activeCount}), review flags, mastery, due dates, and correct/wrong counters.
+            Clears attempts, in-progress sessions (${activeCount}), review flags, mastery, due dates, and correct/wrong counters. Completed test history is kept.
           </p>
           <div class="actions">
             <button class="danger" data-reset-progress="${domain}">Reset ${label}</button>
@@ -395,7 +452,7 @@ function renderSettings() {
 async function resetDomainProgress(domain) {
   const label = domains[domain] || domain;
   const confirmed = confirm(
-    `Reset ${label} progress? This keeps questions and sources, but clears attempts, saved sessions, review flags, due dates, and correct/wrong counters.`
+    `Reset ${label} progress? This keeps questions, sources, and completed test history, but clears attempts, in-progress sessions, review flags, due dates, and correct/wrong counters.`
   );
   if (!confirmed) return;
   const result = await api("/api/progress/reset", {
@@ -488,17 +545,20 @@ function syncImportFormForDomain() {
 }
 
 async function loadAll() {
-  const [stats, sources, taxonomy, sessions] = await Promise.all([
+  const [stats, sources, taxonomy, sessions, completedSessions] = await Promise.all([
     api("/api/stats"),
     api("/api/sources"),
     api("/api/taxonomy"),
     api("/api/sessions/active"),
+    api("/api/sessions/completed"),
   ]);
   state.stats = stats;
   state.sources = sources.sources;
   state.taxonomy = taxonomy;
   state.activeSessions = sessions.sessions;
+  state.completedSessions = completedSessions.sessions;
   renderDashboard();
+  renderTestHistory();
   renderSettings();
   renderSources();
   syncItemFormForDomain();
@@ -567,6 +627,15 @@ async function resumeSession(sessionId) {
     showView("test");
     renderQuestion("#test-panel");
   }
+}
+
+async function viewHistorySession(sessionId) {
+  const session = await api(`/api/session?session_id=${encodeURIComponent(sessionId)}`);
+  state.session = session;
+  state.index = 0;
+  state.answered = false;
+  showView("history");
+  renderResults("#history-panel");
 }
 
 function currentItem() {
@@ -642,6 +711,7 @@ function renderResults(panelSelector) {
   const panel = $(panelSelector);
   const session = state.session;
   const wrongCount = session.items.filter((item) => !item.correct).length;
+  const isHistory = panelSelector === "#history-panel";
   panel.innerHTML = `
     <div class="results-shell">
       <div class="results-summary">
@@ -649,7 +719,7 @@ function renderResults(panelSelector) {
           <h3>${session.mode === "review" ? "Review Complete" : "Test Complete"}</h3>
           <p>Score: ${session.score} of ${session.count} / ${wrongCount} missed</p>
         </div>
-        <button data-view="dashboard">Dashboard</button>
+        <button id="results-back">${isHistory ? "Back to History" : "Dashboard"}</button>
       </div>
       <div class="results-list">
         ${session.items
@@ -677,7 +747,14 @@ function renderResults(panelSelector) {
       </div>
     </div>
   `;
-  $("[data-view='dashboard']", panel).addEventListener("click", () => showView("dashboard"));
+  $("#results-back", panel).addEventListener("click", () => {
+    if (isHistory) {
+      renderTestHistory();
+      showView("history");
+    } else {
+      showView("dashboard");
+    }
+  });
 }
 
 function renderQuestion(panelSelector = "#test-panel") {

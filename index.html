@@ -17,6 +17,7 @@
           <button class="tab active" data-view="dashboard">Dashboard</button>
           <button class="tab" data-view="sources">Sources</button>
           <button class="tab" data-view="review">Review</button>
+          <button class="tab" data-view="history">History</button>
           <button class="tab" data-view="flashcards">Flashcards</button>
           <button class="tab icon-tab" data-view="settings" title="Settings" aria-label="Settings">
             <span aria-hidden="true">&#9881;</span>
@@ -161,7 +162,7 @@
                   <select name="domain" id="import-domain">
                     <option value="vocabulary">Vocabulary</option>
                     <option value="math">Math</option>
-                  <option value="english">Reading & Writing</option>
+                    <option value="english">Reading & Writing</option>
                   </select>
                 </label>
                 <label>
@@ -243,6 +244,16 @@
             </div>
           </div>
           <div id="flashcard-panel" class="work-panel"></div>
+        </section>
+
+        <section id="history" class="view">
+          <div class="section-head">
+            <div>
+              <h2>Test History</h2>
+              <p>Review completed tests and every question answered, right or wrong.</p>
+            </div>
+          </div>
+          <div id="history-panel" class="work-panel"></div>
         </section>
 
         <section id="settings" class="view">

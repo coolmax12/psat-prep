@@ -9,6 +9,7 @@ The app helps students practice:
 - Reading and Writing practice by topic and difficulty
 - Review of missed questions
 - Saved in-progress tests
+- Completed test history with full result review
 - Progress tracking, reset controls, answers, explanations, and source tracing
 
 ## Important Sharing Note
@@ -252,7 +253,8 @@ In the app:
 2. Confirm Vocabulary, Math, and Reading/Writing show nonzero totals.
 3. Start a 10-question Math test.
 4. Start Vocabulary Flashcards.
-5. Open Settings and confirm each section shows Fresh as `fresh/total`.
+5. After completing a test, open History and confirm the completed result is listed.
+6. Open Settings and confirm each section shows Fresh as `fresh/total`.
 
 ## Troubleshooting
 
@@ -415,18 +417,23 @@ IMPORT_LIMIT_VOCABULARY=20 IMPORT_LIMIT_MATH=10 IMPORT_LIMIT_ENGLISH=10 python3 
 4. Choose a test size: 10, 20, or 30 questions.
 5. Complete the test before seeing score, correct answers, selected wrong answers, and explanations.
 6. Review missed questions from Review Incorrect.
-7. Use Vocabulary Flashcards in word-to-definition, definition-to-word, or mixed mode.
-8. Use Settings to reset progress counters for one section without deleting questions or sources.
+7. Use History to revisit completed tests and all questions in each test, right or wrong.
+8. Use Vocabulary Flashcards in word-to-definition, definition-to-word, or mixed mode.
+9. Use Settings to reset progress counters for one section without deleting questions, sources, or completed test history.
 
 ## Scheduling And Progress
 
 Tests prefer fresh material first. If a test asks for more items than remain fresh, the app adds due review items, then older seen items.
+
+Missed questions stay flagged for Review Incorrect and are also randomly reinjected into future normal tests. Normal tests reserve a small slice for missed-review items when available, while still prioritizing broad coverage of fresh source material.
 
 For Math and Reading/Writing, the sampler rotates across selected top-level topics so broad tests cover a range of skills.
 
 Correct answers increase mastery and push the item farther into the future. Wrong answers reset mastery, mark the item for review, and make it due again soon.
 
 Saved tests and review sessions can be resumed later from the Dashboard.
+
+Completed tests are available from History. The history view preserves the completed results page, including the score, every question, selected answers, correct answers, explanations, and source metadata.
 
 Vocabulary flashcards load the active vocabulary deck into browser memory and cycle through the full list before reshuffling.
 
