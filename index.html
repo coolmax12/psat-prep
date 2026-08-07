@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PSAT Prep</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>PSAT Prep</h1>
+          <p>Local practice, review, and flashcards</p>
+        </div>
+        <nav class="tabs" aria-label="Main navigation">
+          <button class="tab active" data-view="dashboard">Dashboard</button>
+          <button class="tab" data-view="sources">Sources</button>
+          <button class="tab" data-view="review">Review</button>
+          <button class="tab" data-view="flashcards">Flashcards</button>
+          <button class="tab icon-tab" data-view="settings" title="Settings" aria-label="Settings">
+            <span aria-hidden="true">&#9881;</span>
+            <span>Settings</span>
+          </button>
+        </nav>
+      </header>
+
+      <main>
+        <section id="dashboard" class="view active">
+          <div class="section-head">
+            <div>
+              <h2>Dashboard</h2>
+              <p>Start a short test from unused material first; due repeats are used after fresh items run low.</p>
+            </div>
+          </div>
+          <div id="active-session-list"></div>
+          <div id="domain-grid" class="domain-grid"></div>
+        </section>
+
+        <section id="test" class="view">
+          <div class="section-head">
+            <div>
+              <h2 id="test-title">Test</h2>
+              <p id="test-subtitle"></p>
+            </div>
+            <button class="secondary" data-view="dashboard">Back</button>
+          </div>
+          <div id="test-panel" class="work-panel"></div>
+        </section>
+
+        <section id="sources" class="view">
+          <div class="section-head">
+            <div>
+              <h2>Sources</h2>
+              <p>Add PDFs, links, book sections, then add vocabulary or questions from those sources.</p>
+            </div>
+          </div>
+
+          <div class="split-layout">
+            <form id="source-form" class="panel">
+              <h3>Add Source</h3>
+              <label>
+                Title
+                <input name="title" required placeholder="College Board practice set 1">
+              </label>
+              <label>
+                Area
+                <select name="domain">
+                  <option value="vocabulary">Vocabulary</option>
+                  <option value="math">Math</option>
+                  <option value="english">Reading & Writing</option>
+                </select>
+              </label>
+              <label>
+                Type
+                <select name="kind">
+                  <option value="link">Web link</option>
+                  <option value="pdf">PDF path or link</option>
+                  <option value="book">Book or notes</option>
+                </select>
+              </label>
+              <label>
+                Link or path
+                <input name="locator" placeholder="https://... or /srv/psat/source.pdf">
+              </label>
+              <label>
+                Notes
+                <textarea name="notes" rows="3" placeholder="Chapters, pages, topic focus"></textarea>
+              </label>
+              <button type="submit">Add Source</button>
+            </form>
+
+            <form id="item-form" class="panel">
+              <h3>Add Item</h3>
+              <label>
+                Area
+                <select name="domain" id="item-domain">
+                  <option value="vocabulary">Vocabulary</option>
+                  <option value="math">Math</option>
+                  <option value="english">Reading & Writing</option>
+                </select>
+              </label>
+              <label>
+                Source
+                <select name="source_id" id="item-source"></select>
+              </label>
+              <label id="question-identifier-label">
+                Question identifier
+                <input name="question_identifier" id="question-identifier" placeholder="Optional source ID">
+              </label>
+              <label id="item-topic-label">
+                Topic
+                <select name="topic" id="item-topic"></select>
+              </label>
+              <label id="item-subtopic-label">
+                Subtopic
+                <input name="subtopic" id="item-subtopic" placeholder="Optional">
+              </label>
+              <label id="item-difficulty-label">
+                Difficulty
+                <select name="difficulty" id="item-difficulty">
+                  <option value="Easy">Easy</option>
+                  <option value="Medium" selected>Medium</option>
+                  <option value="Hard">Hard</option>
+                </select>
+              </label>
+              <label id="prompt-label">
+                Word or question
+                <textarea name="prompt" rows="4" required></textarea>
+              </label>
+              <label id="answer-label">
+                Definition or correct answer
+                <textarea name="answer" rows="3" required></textarea>
+              </label>
+              <label id="choices-label">
+                Choices, one per line
+                <textarea name="choices" rows="4" placeholder="Only needed for math and reading/english"></textarea>
+              </label>
+              <label id="prompt-images-label">
+                Prompt image paths or URLs
+                <textarea name="prompt_images" rows="2" placeholder="One per line, optional"></textarea>
+              </label>
+              <label id="choice-images-label">
+                Choice image paths or URLs
+                <textarea name="choice_images" rows="3" placeholder="One per line, aligned with choices"></textarea>
+              </label>
+              <label>
+                Explanation
+                <textarea name="explanation" rows="3"></textarea>
+              </label>
+              <button type="submit">Add Item</button>
+            </form>
+          </div>
+
+          <div class="split-layout">
+            <form id="import-form" class="panel wide">
+              <h3>Batch Import</h3>
+              <div class="form-grid">
+                <label>
+                  Area
+                  <select name="domain" id="import-domain">
+                    <option value="vocabulary">Vocabulary</option>
+                    <option value="math">Math</option>
+                  <option value="english">Reading & Writing</option>
+                  </select>
+                </label>
+                <label>
+                  Source
+                  <select name="source_id" id="import-source"></select>
+                </label>
+                <label>
+                  Format
+                  <select name="mode" id="import-mode">
+                    <option value="vocabulary">Vocabulary: word - definition</option>
+                    <option value="questions_tsv">Questions: tab-separated</option>
+                    <option value="questions_json">Questions: JSON</option>
+                  </select>
+                </label>
+                <label id="import-topic-label">
+                  Topic
+                  <select name="topic" id="import-topic"></select>
+                </label>
+                <label id="import-subtopic-label">
+                  Subtopic
+                  <input name="subtopic" id="import-subtopic" placeholder="Optional">
+                </label>
+                <label id="import-difficulty-label">
+                  Difficulty
+                  <select name="difficulty" id="import-difficulty">
+                    <option value="Easy">Easy</option>
+                    <option value="Medium" selected>Medium</option>
+                    <option value="Hard">Hard</option>
+                  </select>
+                </label>
+              </div>
+              <textarea name="text" rows="8" placeholder="Vocabulary: austere - severe or plain&#10;Questions TSV: prompt[TAB]choice A[TAB]choice B[TAB]choice C[TAB]choice D[TAB]A[TAB]explanation[TAB]topic[TAB]subtopic[TAB]difficulty[TAB]prompt images[TAB]choice images[TAB]question identifier"></textarea>
+              <button type="submit">Import Items</button>
+            </form>
+
+            <div class="panel">
+              <h3>Source List</h3>
+              <div id="source-list" class="source-list"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="review" class="view">
+          <div class="section-head">
+            <div>
+              <h2>Review Incorrect</h2>
+              <p>Questions missed in tests stay here until they are answered correctly in review or marked cleared.</p>
+            </div>
+            <div class="inline-controls">
+              <select id="review-domain">
+                <option value="vocabulary">Vocabulary</option>
+                <option value="math">Math</option>
+                <option value="english">Reading & Writing</option>
+              </select>
+              <select id="review-size">
+                <option value="10">10 questions</option>
+                <option value="20">20 questions</option>
+                <option value="30">30 questions</option>
+              </select>
+              <button id="start-review">Start Review</button>
+            </div>
+          </div>
+          <div id="review-panel" class="work-panel"></div>
+        </section>
+
+        <section id="flashcards" class="view">
+          <div class="section-head">
+            <div>
+              <h2>Vocabulary Flashcards</h2>
+              <p>Practice word to meaning, meaning to word, or a mix.</p>
+            </div>
+            <div class="inline-controls">
+              <select id="flash-direction">
+                <option value="mixed">Mixed</option>
+                <option value="word_to_definition">Word to definition</option>
+                <option value="definition_to_word">Definition to word</option>
+              </select>
+              <button id="start-flashcards">Start</button>
+            </div>
+          </div>
+          <div id="flashcard-panel" class="work-panel"></div>
+        </section>
+
+        <section id="settings" class="view">
+          <div class="section-head">
+            <div>
+              <h2>Settings</h2>
+              <p>Reset practice progress for one section without removing source material or questions.</p>
+            </div>
+          </div>
+          <div id="settings-panel" class="settings-grid"></div>
+        </section>
+      </main>
+    </div>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
