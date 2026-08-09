@@ -766,18 +766,6 @@ p {
     width: 100%;
   }
 
-  .question-actions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .question-actions .session-timing {
-    grid-column: 1 / -1;
-    justify-content: center;
-    width: 100%;
-    margin-left: 0;
-  }
-
   .history-row {
     grid-template-columns: 1fr;
   }

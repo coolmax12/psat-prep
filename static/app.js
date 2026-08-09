@@ -900,13 +900,13 @@ function renderQuestion(panelSelector = "#test-panel") {
         <button id="prev-question" class="secondary" ${
           state.index <= 0 ? "disabled" : ""
         }>Back</button>
+        <button id="next-question" ${hasAnswer ? "" : "disabled"}>${
+    isLastQuestion ? "Finish" : "Next"
+  }</button>
         <div class="session-timing">
           <span>Elapsed</span>
           <b data-session-elapsed>${formatDuration(sessionElapsedSeconds(state.session))}</b>
         </div>
-        <button id="next-question" ${hasAnswer ? "" : "disabled"}>${
-    isLastQuestion ? "Finish" : "Next"
-  }</button>
       </div>
     </div>
   `;
