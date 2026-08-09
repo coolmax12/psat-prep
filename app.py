@@ -1102,13 +1102,7 @@ def session_card(
     choices = item["choices"]
     media = item.get("media", {})
     choice_images = list(media.get("choice_images", []))
-    choice_images = (choice_images + [""] * len(choices))[: len(choices)]
-    choice_pairs = list(zip(choices, choice_images))
-    label_only_choices = choices == ["A", "B", "C", "D"]
-    if not label_only_choices:
-        random.shuffle(choice_pairs)
-    item["choices"] = [choice for choice, _image in choice_pairs]
-    item["media"]["choice_images"] = [image for _choice, image in choice_pairs]
+    item["media"]["choice_images"] = (choice_images + [""] * len(choices))[: len(choices)]
     item["question_prompt"] = item["prompt"]
     item["self_grade"] = len(item["choices"]) < 2
     return item

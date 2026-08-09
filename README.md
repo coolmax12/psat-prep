@@ -437,6 +437,8 @@ IMPORT_LIMIT_VOCABULARY=20 IMPORT_LIMIT_MATH=10 IMPORT_LIMIT_ENGLISH=10 python3 
 
 Tests prefer fresh material first. If a test asks for more items than remain fresh, the app adds due review items, then older seen items. Items are randomly sampled within those buckets instead of being pulled in source PDF order.
 
+For imported Math and Reading/Writing questions, answer choices stay in source PDF order so the displayed A/B/C/D labels match the explanations.
+
 Missed questions stay flagged for Review Incorrect and are also randomly reinjected into future normal tests. Normal tests reserve a small slice for missed-review items when available, while still prioritizing broad coverage of fresh source material.
 
 For Math and Reading/Writing, normal tests reserve at least 40% of the requested test size for Hard questions when Hard is available in the selected filters. The sampler also rotates across selected top-level topics so broad tests cover a range of skills.
