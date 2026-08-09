@@ -1,6 +1,6 @@
 # PSAT Prep
 
-PSAT Prep is a lightweight local web app for building and practicing from a personal PSAT/SAT question bank. It imports local source PDFs into SQLite, serves a browser-based practice dashboard, and supports vocabulary, Math, and Reading and Writing workflows without requiring a hosted service.
+PSAT Prep is a lightweight local web app for building and practicing from a personal PSAT/SAT question bank. It imports local source PDFs into SQLite, serves a browser-based practice dashboard, and supports timed vocabulary, Math, and Reading and Writing workflows without requiring a hosted service.
 
 The app helps students practice with:
 
@@ -8,8 +8,8 @@ The app helps students practice with:
 - Math practice by topic and difficulty
 - Reading and Writing practice by topic and difficulty
 - Review of missed questions
-- Saved in-progress tests
-- Completed test history with full result review
+- Saved in-progress tests with editable answers and Back/Next navigation
+- Completed test history with full result review, total time, and average time per question
 - Progress tracking, reset controls, answers, explanations, and source tracing
 
 The current feature set includes:
@@ -19,6 +19,8 @@ The current feature set includes:
 - Fresh-first scheduling with due-review fallback and missed-question reinjection
 - A minimum 40% Hard-question target for Math and Reading/Writing tests when Hard questions are available in the selected filters
 - Topic rotation for broad Math and Reading/Writing tests
+- Source-order answer choices for imported Math and Reading/Writing questions so PDF explanations match the displayed A/B/C/D labels
+- A live in-test stopwatch with completed-test timing summaries
 - Vocabulary flashcards with word-to-definition, definition-to-word, and mixed modes
 - Persistent local SQLite storage for questions, attempts, progress, saved sessions, and history
 
