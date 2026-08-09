@@ -8,4 +8,5 @@
 - Preserved difficulty filters: tests that exclude Hard questions stay limited to the selected Easy/Medium difficulties, and Hard-only tests remain all Hard.
 - Preserved imported answer choice order for Math and Reading/Writing so displayed A/B/C/D labels match source PDF explanations.
 - Allowed in-progress test answers to be changed before finishing and added Back/Next navigation through reached questions.
+- Added a live test stopwatch plus completed-test total time and average time per question.
 - Updated README documentation to describe the project feature set and the current test-sampling behavior.

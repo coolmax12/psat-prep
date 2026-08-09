@@ -428,11 +428,12 @@ IMPORT_LIMIT_VOCABULARY=20 IMPORT_LIMIT_MATH=10 IMPORT_LIMIT_ENGLISH=10 python3 
 3. For Math and Reading/Writing, choose one or more topics and difficulties.
 4. Choose a test size: 10, 20, or 30 questions.
 5. Answer each question, using Back and Next to revisit reached questions and change answers before finishing.
-6. Complete the test before seeing score, correct answers, selected wrong answers, and explanations.
-7. Review missed questions from Review Incorrect.
-8. Use History to revisit completed tests and all questions in each test, right or wrong.
-9. Use Vocabulary Flashcards in word-to-definition, definition-to-word, or mixed mode.
-10. Use Settings to reset progress counters for one section without deleting questions, sources, or completed test history.
+6. Watch elapsed test time while practicing.
+7. Complete the test before seeing score, total time, average time per question, correct answers, selected wrong answers, and explanations.
+8. Review missed questions from Review Incorrect.
+9. Use History to revisit completed tests and all questions in each test, right or wrong.
+10. Use Vocabulary Flashcards in word-to-definition, definition-to-word, or mixed mode.
+11. Use Settings to reset progress counters for one section without deleting questions, sources, or completed test history.
 
 ## Scheduling And Progress
 
@@ -448,7 +449,7 @@ Correct answers increase mastery and push the item farther into the future. Wron
 
 Saved tests and review sessions can be resumed later from the Dashboard.
 
-Completed tests are available from History. The history view preserves the completed results page, including the score, every question, selected answers, correct answers, explanations, and source metadata.
+Completed tests are available from History. The history view preserves the completed results page, including the score, total time, average time per question, every question, selected answers, correct answers, explanations, and source metadata.
 
 Vocabulary flashcards load the active vocabulary deck into browser memory and cycle through the full list before reshuffling.
 

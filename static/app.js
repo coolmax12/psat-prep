@@ -32,6 +32,7 @@ const state = {
   session: null,
   index: 0,
   score: 0,
+  timerId: null,
   flashFlipped: false,
   flashPass: 1,
   flashHistory: [],
@@ -64,6 +65,12 @@ function toast(message) {
 function showView(viewName) {
   $$(".view").forEach((view) => view.classList.toggle("active", view.id === viewName));
   $$(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.view === viewName));
+  const activeView = $(`#${viewName}`);
+  if (["test", "review"].includes(viewName) && $("[data-session-elapsed]", activeView)) {
+    startSessionTimer();
+  } else {
+    stopSessionTimer();
+  }
 }
 
 function sourceOptions(domain, includeEmpty = true) {
@@ -257,6 +264,57 @@ function formatDateTime(value) {
   });
 }
 
+function sessionTimeMs(value) {
+  const time = Date.parse(value || "");
+  return Number.isNaN(time) ? null : time;
+}
+
+function sessionElapsedSeconds(session) {
+  const start = sessionTimeMs(session?.created_at);
+  if (start === null) return 0;
+  const completed = sessionTimeMs(session?.completed_at);
+  const end = completed === null ? Date.now() : completed;
+  return Math.max(0, Math.floor((end - start) / 1000));
+}
+
+function sessionAverageSeconds(session) {
+  const count = Number(session?.count || 0);
+  if (!count) return 0;
+  return Math.round(sessionElapsedSeconds(session) / count);
+}
+
+function formatDuration(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const remainingSeconds = total % 60;
+  const paddedMinutes = String(minutes).padStart(2, "0");
+  const paddedSeconds = String(remainingSeconds).padStart(2, "0");
+  if (hours) return `${hours}:${paddedMinutes}:${paddedSeconds}`;
+  return `${minutes}:${paddedSeconds}`;
+}
+
+function stopSessionTimer() {
+  if (!state.timerId) return;
+  clearInterval(state.timerId);
+  state.timerId = null;
+}
+
+function updateSessionTimer() {
+  const value = formatDuration(sessionElapsedSeconds(state.session));
+  $$("[data-session-elapsed]").forEach((node) => {
+    node.textContent = value;
+  });
+}
+
+function startSessionTimer() {
+  stopSessionTimer();
+  updateSessionTimer();
+  if (state.session?.status === "in_progress") {
+    state.timerId = setInterval(updateSessionTimer, 1000);
+  }
+}
+
 function renderActiveSessions() {
   const target = $("#active-session-list");
   if (!state.activeSessions.length) {
@@ -275,7 +333,9 @@ function renderActiveSessions() {
             (session) => `
               <button class="resume-row" data-resume-session="${session.session_id}">
                 <span>${domains[session.domain]} ${session.mode === "review" ? "Review" : "Test"}</span>
-                <small>${session.answered_count} of ${session.count} answered</small>
+                <small>${session.answered_count} of ${session.count} answered / ${formatDuration(
+              sessionElapsedSeconds(session)
+            )}</small>
               </button>
             `
           )
@@ -310,6 +370,8 @@ function renderTestHistory() {
             session.mode === "review" ? "Review" : "Test"
           }`;
           const filterText = filterSummary(session.domain, session.filters);
+          const totalTime = formatDuration(sessionElapsedSeconds(session));
+          const averageTime = formatDuration(sessionAverageSeconds(session));
           return `
             <button class="history-row" data-history-session="${session.session_id}">
               <span>
@@ -318,6 +380,7 @@ function renderTestHistory() {
               </span>
               <span>
                 <b>${session.score}/${session.count}</b>
+                <small>${totalTime} total / ${averageTime} avg</small>
                 <small>${session.wrong_count || 0} missed${filterText ? ` / ${filterText}` : ""}</small>
               </span>
             </button>
@@ -647,6 +710,7 @@ async function completeCurrentSession(panelSelector) {
   if (!state.session?.session_id) {
     return;
   }
+  stopSessionTimer();
   panel.innerHTML = `<div class="empty-state">Scoring test...</div>`;
   const session = await api("/api/session/complete", {
     method: "POST",
@@ -708,9 +772,12 @@ function resultChoicesHtml(item) {
 }
 
 function renderResults(panelSelector) {
+  stopSessionTimer();
   const panel = $(panelSelector);
   const session = state.session;
   const wrongCount = session.items.filter((item) => !item.correct).length;
+  const totalTime = formatDuration(sessionElapsedSeconds(session));
+  const averageTime = formatDuration(sessionAverageSeconds(session));
   const isHistory = panelSelector === "#history-panel";
   panel.innerHTML = `
     <div class="results-shell">
@@ -718,6 +785,7 @@ function renderResults(panelSelector) {
         <div>
           <h3>${session.mode === "review" ? "Review Complete" : "Test Complete"}</h3>
           <p>Score: ${session.score} of ${session.count} / ${wrongCount} missed</p>
+          <p>Time: ${totalTime} / Avg per question: ${averageTime}</p>
         </div>
         <button id="results-back">${isHistory ? "Back to History" : "Dashboard"}</button>
       </div>
@@ -794,6 +862,10 @@ function renderQuestion(panelSelector = "#test-panel") {
         <span>${domains[item.domain]} / ${mode === "review" ? "Review" : "Test"}</span>
         <span>${state.index + 1} of ${state.session.count}</span>
       </div>
+      <div class="session-timing">
+        <span>Elapsed</span>
+        <b data-session-elapsed>${formatDuration(sessionElapsedSeconds(state.session))}</b>
+      </div>
       ${questionMeta(item)}
       <div class="prompt">${escapeHtml(item.question_prompt || item.prompt)}</div>
       ${promptImagesHtml(item)}
@@ -838,6 +910,7 @@ function renderQuestion(panelSelector = "#test-panel") {
       </div>
     </div>
   `;
+  startSessionTimer();
 
   if (item.self_grade) {
     const typedAnswer = $("#typed-answer", panel);

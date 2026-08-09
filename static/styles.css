@@ -485,6 +485,25 @@ p {
   font-weight: 800;
 }
 
+.session-timing {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fbfcfb;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.session-timing b {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
 .meta-chips {
   display: flex;
   flex-wrap: wrap;
