@@ -54,6 +54,33 @@ def iso(dt: Optional[datetime] = None) -> str:
     return (dt or utcnow()).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    text = value.strip()
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def session_elapsed_seconds(
+    session: sqlite3.Row,
+    at: Optional[datetime] = None,
+) -> int:
+    start = parse_iso_datetime(session["created_at"])
+    if start is None:
+        return 0
+    completed = parse_iso_datetime(session["completed_at"])
+    end = completed or at or utcnow()
+    return max(0, int((end - start).total_seconds()))
+
+
 def parse_json(value: Optional[str], fallback: Any) -> Any:
     if not value:
         return fallback
@@ -1176,6 +1203,7 @@ def session_response(
         "created_at": session["created_at"],
         "updated_at": session["updated_at"],
         "completed_at": session["completed_at"],
+        "elapsed_seconds": session_elapsed_seconds(session),
         "items": items,
     }
 
@@ -1304,6 +1332,7 @@ def complete_session(conn: sqlite3.Connection, session_id: int) -> dict[str, Any
 
 
 def active_sessions(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    now = utcnow()
     rows = conn.execute(
         """
         SELECT ps.*,
@@ -1322,12 +1351,15 @@ def active_sessions(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             "session_id": row["id"],
             "domain": row["domain"],
             "mode": row["mode"],
+            "status": row["status"],
             "requested_count": row["requested_count"],
             "count": row["item_count"],
             "answered_count": row["answered_count"] or 0,
             "filters": parse_json(row["filters_json"], {}),
             "updated_at": row["updated_at"],
             "created_at": row["created_at"],
+            "completed_at": row["completed_at"],
+            "elapsed_seconds": session_elapsed_seconds(row, now),
         }
         for row in rows
     ]
@@ -1354,6 +1386,7 @@ def completed_sessions(conn: sqlite3.Connection, limit: int = 50) -> list[dict[s
             "session_id": row["id"],
             "domain": row["domain"],
             "mode": row["mode"],
+            "status": row["status"],
             "requested_count": row["requested_count"],
             "count": row["item_count"],
             "score": row["score"],
@@ -1363,6 +1396,7 @@ def completed_sessions(conn: sqlite3.Connection, limit: int = 50) -> list[dict[s
             "updated_at": row["updated_at"],
             "created_at": row["created_at"],
             "completed_at": row["completed_at"],
+            "elapsed_seconds": session_elapsed_seconds(row),
         }
         for row in rows
     ]

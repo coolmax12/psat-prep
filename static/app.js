@@ -43,10 +43,9 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {
+  const response = await fetch(path, Object.assign({
     headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+  }, options));
   const payload = await response.json();
   if (!response.ok) {
     throw new Error(payload.error || "Request failed.");
@@ -83,19 +82,20 @@ function sourceOptions(domain, includeEmpty = true) {
 
 function escapeHtml(value) {
   return String(value || "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 function topicsFor(domain) {
-  return state.taxonomy?.topics?.[domain] || [];
+  const topics = state.taxonomy && state.taxonomy.topics;
+  return (topics && topics[domain]) || [];
 }
 
 function difficulties() {
-  return state.taxonomy?.difficulties || fallbackTaxonomy.difficulties;
+  return (state.taxonomy && state.taxonomy.difficulties) || fallbackTaxonomy.difficulties;
 }
 
 function optionList(values, selected = "") {
@@ -138,12 +138,14 @@ function shuffleInPlace(items) {
 }
 
 function sessionSize(mode) {
-  return Number(mode === "review" ? $("#review-size")?.value || 10 : 10);
+  const reviewSize = $("#review-size");
+  return Number(mode === "review" ? (reviewSize && reviewSize.value) || 10 : 10);
 }
 
 function cardTestSize(domain) {
   const card = $(`[data-domain-card="${domain}"]`);
-  return Number($("[data-test-size]", card)?.value || 10);
+  const testSize = $("[data-test-size]", card);
+  return Number((testSize && testSize.value) || 10);
 }
 
 function orientFlashcard(item, direction) {
@@ -169,7 +171,7 @@ function orientFlashcard(item, direction) {
 }
 
 function prepareFlashDeck() {
-  const direction = state.session?.direction || "mixed";
+  const direction = (state.session && state.session.direction) || "mixed";
   state.session.items.forEach((item) => orientFlashcard(item, direction));
   shuffleInPlace(state.session.items);
 }
@@ -198,8 +200,8 @@ function getDashboardFilters(domain) {
 
 function filterSummary(domain, filters = {}) {
   if (domain === "vocabulary") return "";
-  const topics = filters.topics?.length ? filters.topics.join(", ") : "All topics";
-  const diffs = filters.difficulties?.length
+  const topics = filters.topics && filters.topics.length ? filters.topics.join(", ") : "All topics";
+  const diffs = filters.difficulties && filters.difficulties.length
     ? filters.difficulties.join(", ")
     : "All difficulties";
   return `${topics} / ${diffs}`;
@@ -225,7 +227,7 @@ function mediaUrl(value) {
 }
 
 function promptImagesHtml(item) {
-  const images = item.media?.prompt_images || [];
+  const images = (item.media && item.media.prompt_images) || [];
   if (!images.length) return "";
   return `
     <div class="media-grid">
@@ -237,7 +239,8 @@ function promptImagesHtml(item) {
 }
 
 function choiceImageHtml(item, index) {
-  const image = item.media?.choice_images?.[index];
+  const choiceImages = (item.media && item.media.choice_images) || [];
+  const image = choiceImages[index];
   if (!image) return "";
   return `<img class="choice-image" src="${escapeHtml(mediaUrl(image))}" alt="">`;
 }
@@ -269,16 +272,54 @@ function sessionTimeMs(value) {
   return Number.isNaN(time) ? null : time;
 }
 
+function timerNowMs() {
+  if (window.performance && typeof window.performance.now === "function") {
+    return window.performance.now();
+  }
+  return Date.now();
+}
+
+function finiteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function anchorSessionTimer(session) {
+  if (!session || typeof session !== "object") return session;
+  const elapsed = finiteNumber(session.elapsed_seconds);
+  if (elapsed !== null) {
+    session.timer_anchor_elapsed = Math.max(0, Math.floor(elapsed));
+    session.timer_anchor_ms = timerNowMs();
+  }
+  return session;
+}
+
+function anchorSessionTimers(sessions) {
+  return (sessions || []).map((session) => anchorSessionTimer(session));
+}
+
 function sessionElapsedSeconds(session) {
-  const start = sessionTimeMs(session?.created_at);
+  if (!session) return 0;
+  const anchoredElapsed = finiteNumber(session.timer_anchor_elapsed);
+  const elapsed = anchoredElapsed !== null ? anchoredElapsed : finiteNumber(session.elapsed_seconds);
+  if (elapsed !== null) {
+    const anchorMs = finiteNumber(session.timer_anchor_ms);
+    const delta =
+      session.status === "in_progress" && anchorMs !== null
+        ? Math.max(0, Math.floor((timerNowMs() - anchorMs) / 1000))
+        : 0;
+    return Math.max(0, Math.floor(elapsed) + delta);
+  }
+
+  const start = sessionTimeMs(session.created_at);
   if (start === null) return 0;
-  const completed = sessionTimeMs(session?.completed_at);
+  const completed = sessionTimeMs(session.completed_at);
   const end = completed === null ? Date.now() : completed;
   return Math.max(0, Math.floor((end - start) / 1000));
 }
 
 function sessionAverageSeconds(session) {
-  const count = Number(session?.count || 0);
+  const count = Number((session && session.count) || 0);
   if (!count) return 0;
   return Math.round(sessionElapsedSeconds(session) / count);
 }
@@ -310,7 +351,7 @@ function updateSessionTimer() {
 function startSessionTimer() {
   stopSessionTimer();
   updateSessionTimer();
-  if (state.session?.status === "in_progress") {
+  if (state.session && state.session.status === "in_progress") {
     state.timerId = setInterval(updateSessionTimer, 1000);
   }
 }
@@ -399,7 +440,7 @@ function renderDashboard() {
   const grid = $("#domain-grid");
   grid.innerHTML = Object.entries(domains)
     .map(([domain, label]) => {
-      const stats = state.stats?.domains?.[domain] || {};
+      const stats = (state.stats && state.stats.domains && state.stats.domains[domain]) || {};
       const topicValues = topicsFor(domain);
       const filters =
         topicValues.length > 0
@@ -476,7 +517,7 @@ function renderSettings() {
   if (!panel) return;
   panel.innerHTML = Object.entries(domains)
     .map(([domain, label]) => {
-      const stats = state.stats?.domains?.[domain] || {};
+      const stats = (state.stats && state.stats.domains && state.stats.domains[domain]) || {};
       const activeCount = state.activeSessions.filter((session) => session.domain === domain).length;
       return `
         <article class="settings-card" data-settings-domain="${domain}">
@@ -521,7 +562,7 @@ async function resetDomainProgress(domain) {
     method: "POST",
     body: JSON.stringify({ domain }),
   });
-  if (state.session?.domain === domain) {
+  if (state.session && state.session.domain === domain) {
     state.session = null;
   }
   toast(`Reset ${label} progress for ${result.items_reset} item${result.items_reset === 1 ? "" : "s"}.`);
@@ -617,8 +658,8 @@ async function loadAll() {
   state.stats = stats;
   state.sources = sources.sources;
   state.taxonomy = taxonomy;
-  state.activeSessions = sessions.sessions;
-  state.completedSessions = completedSessions.sessions;
+  state.activeSessions = anchorSessionTimers(sessions.sessions);
+  state.completedSessions = anchorSessionTimers(completedSessions.sessions);
   renderDashboard();
   renderTestHistory();
   renderSettings();
@@ -637,10 +678,18 @@ async function startSession(
   const count = countOverride || sessionSize(mode);
   const direction = mode === "flashcards" ? $("#flash-direction").value : "mixed";
   const selectedFilters = filters || { topics: [], difficulties: [] };
-  const session = await api("/api/session", {
+  const payload = {
+    domain,
+    mode,
+    count,
+    direction,
+    topics: selectedFilters.topics,
+    difficulties: selectedFilters.difficulties,
+  };
+  const session = anchorSessionTimer(await api("/api/session", {
     method: "POST",
-    body: JSON.stringify({ domain, mode, count, direction, ...selectedFilters }),
-  });
+    body: JSON.stringify(payload),
+  }));
   state.session = session;
   state.session.filters = selectedFilters;
   state.session.direction = direction;
@@ -670,7 +719,7 @@ async function startSession(
 }
 
 async function resumeSession(sessionId) {
-  const session = await api(`/api/session?session_id=${encodeURIComponent(sessionId)}`);
+  const session = anchorSessionTimer(await api(`/api/session?session_id=${encodeURIComponent(sessionId)}`));
   state.session = session;
   state.session.filters = session.filters || { topics: [], difficulties: [] };
   state.session.requestedCount = session.requested_count || session.count || 10;
@@ -690,7 +739,7 @@ async function resumeSession(sessionId) {
 }
 
 async function viewHistorySession(sessionId) {
-  const session = await api(`/api/session?session_id=${encodeURIComponent(sessionId)}`);
+  const session = anchorSessionTimer(await api(`/api/session?session_id=${encodeURIComponent(sessionId)}`));
   state.session = session;
   state.index = 0;
   showView("history");
@@ -698,24 +747,24 @@ async function viewHistorySession(sessionId) {
 }
 
 function currentItem() {
-  return state.session?.items?.[state.index];
+  return state.session && state.session.items ? state.session.items[state.index] : undefined;
 }
 
 function hasSelectedAnswer(item) {
-  return Boolean(String(item?.selected_answer || "").trim());
+  return Boolean(String((item && item.selected_answer) || "").trim());
 }
 
 async function completeCurrentSession(panelSelector) {
   const panel = $(panelSelector);
-  if (!state.session?.session_id) {
+  if (!state.session || !state.session.session_id) {
     return;
   }
   stopSessionTimer();
   panel.innerHTML = `<div class="empty-state">Scoring test...</div>`;
-  const session = await api("/api/session/complete", {
+  const session = anchorSessionTimer(await api("/api/session/complete", {
     method: "POST",
     body: JSON.stringify({ session_id: state.session.session_id }),
-  });
+  }));
   state.session = session;
   renderResults(panelSelector);
   await loadAll();
@@ -830,7 +879,7 @@ function renderQuestion(panelSelector = "#test-panel") {
   const item = currentItem();
   const hasAnswer = hasSelectedAnswer(item);
 
-  if (state.session?.status === "completed") {
+  if (state.session && state.session.status === "completed") {
     renderResults(panelSelector);
     return;
   }
@@ -979,19 +1028,17 @@ async function answerQuestion(selected, panelSelector) {
   if (saveButton) saveButton.disabled = true;
 
   try {
-    const saved = await api("/api/session/answer", {
+    const saved = anchorSessionTimer(await api("/api/session/answer", {
       method: "POST",
       body: JSON.stringify({
         session_id: state.session.session_id,
         position: currentPosition,
         selected_answer: selected,
       }),
-    });
-    state.session = {
-      ...saved,
-      filters,
-      requestedCount,
-    };
+    }));
+    saved.filters = filters;
+    saved.requestedCount = requestedCount;
+    state.session = saved;
     renderQuestion(panelSelector);
   } catch (error) {
     toast(error.message);
@@ -1085,7 +1132,14 @@ function rememberFlashcard(item) {
 }
 
 function previousFlashcard() {
-  if (state.flashAdvancing || state.session?.mode !== "flashcards" || !state.flashHistory.length) return;
+  if (
+    state.flashAdvancing ||
+    !state.session ||
+    state.session.mode !== "flashcards" ||
+    !state.flashHistory.length
+  ) {
+    return;
+  }
   const previous = state.flashHistory.pop();
   const previousIndex = state.session.items.findIndex((item) => item.id === previous.id);
   if (previousIndex < 0) return;
@@ -1100,7 +1154,8 @@ function isEditableTarget(target) {
 }
 
 function handleFlashcardKeys(event) {
-  if ($(".view.active")?.id !== "flashcards" || isEditableTarget(event.target)) return;
+  const activeView = $(".view.active");
+  if (!activeView || activeView.id !== "flashcards" || isEditableTarget(event.target)) return;
   if (event.key === "ArrowRight") {
     event.preventDefault();
     scoreFlashcard(true);
@@ -1111,7 +1166,11 @@ function handleFlashcardKeys(event) {
 }
 
 function formPayload(form) {
-  return Object.fromEntries(new FormData(form).entries());
+  const payload = {};
+  new FormData(form).forEach((value, key) => {
+    payload[key] = value;
+  });
+  return payload;
 }
 
 function bindEvents() {
@@ -1159,7 +1218,7 @@ function bindEvents() {
     const payload = formPayload(event.currentTarget);
     const result = await api("/api/import", { method: "POST", body: JSON.stringify(payload) });
     toast(`Imported ${result.created} item${result.created === 1 ? "" : "s"}.`);
-    if (result.errors?.length) {
+    if (result.errors && result.errors.length) {
       toast(`${result.created} imported; ${result.errors.length} line(s) skipped.`);
     }
     await loadAll();
@@ -1181,7 +1240,7 @@ window.addEventListener("error", (event) => {
 });
 
 window.addEventListener("unhandledrejection", (event) => {
-  toast(event.reason?.message || "Something went wrong.");
+  toast((event.reason && event.reason.message) || "Something went wrong.");
 });
 
 bindEvents();
