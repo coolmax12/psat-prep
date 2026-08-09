@@ -32,7 +32,6 @@ const state = {
   session: null,
   index: 0,
   score: 0,
-  answered: false,
   flashFlipped: false,
   flashPass: 1,
   flashHistory: [],
@@ -585,7 +584,6 @@ async function startSession(
   state.session.requestedCount = count;
   state.index = firstUnansweredIndex(session);
   state.score = 0;
-  state.answered = false;
   state.flashFlipped = false;
   state.flashPass = 1;
   state.flashHistory = [];
@@ -615,7 +613,6 @@ async function resumeSession(sessionId) {
   state.session.requestedCount = session.requested_count || session.count || 10;
   state.index = firstUnansweredIndex(session);
   state.score = 0;
-  state.answered = false;
   if (session.mode === "review") {
     showView("review");
     renderQuestion("#review-panel");
@@ -633,13 +630,16 @@ async function viewHistorySession(sessionId) {
   const session = await api(`/api/session?session_id=${encodeURIComponent(sessionId)}`);
   state.session = session;
   state.index = 0;
-  state.answered = false;
   showView("history");
   renderResults("#history-panel");
 }
 
 function currentItem() {
   return state.session?.items?.[state.index];
+}
+
+function hasSelectedAnswer(item) {
+  return Boolean(String(item?.selected_answer || "").trim());
 }
 
 async function completeCurrentSession(panelSelector) {
@@ -760,7 +760,7 @@ function renderResults(panelSelector) {
 function renderQuestion(panelSelector = "#test-panel") {
   const panel = $(panelSelector);
   const item = currentItem();
-  state.answered = false;
+  const hasAnswer = hasSelectedAnswer(item);
 
   if (state.session?.status === "completed") {
     renderResults(panelSelector);
@@ -787,6 +787,7 @@ function renderQuestion(panelSelector = "#test-panel") {
 
   const choices = item.choices || [];
   const mode = state.session.mode;
+  const isLastQuestion = state.index + 1 >= state.session.count;
   panel.innerHTML = `
     <div class="question-shell">
       <div class="progress-line">
@@ -801,36 +802,60 @@ function renderQuestion(panelSelector = "#test-panel") {
           ? `
             <label>
               Your answer
-              <input id="typed-answer" autocomplete="off">
+              <input id="typed-answer" autocomplete="off" value="${escapeHtml(
+                item.selected_answer || ""
+              )}">
             </label>
             <div class="self-grade-actions">
-              <button id="save-typed-answer">Save Answer</button>
+              <button id="save-typed-answer">${hasAnswer ? "Update Answer" : "Save Answer"}</button>
             </div>
           `
           : `
             <div class="choices">
               ${choices
                 .map(
-                  (choice, index) => `
-                    <button class="choice" data-choice="${escapeHtml(choice)}">
+                  (choice, index) => {
+                    const selected = normalize(choice) === normalize(item.selected_answer);
+                    return `
+                    <button class="choice ${selected ? "selected" : ""}" data-choice="${escapeHtml(choice)}">
                       <span>${escapeHtml(choiceDisplayText(choice, index))}</span>
                       ${choiceImageHtml(item, index)}
                     </button>
-                  `
+                  `;
+                  }
                 )
                 .join("")}
             </div>
           `
       }
       <div class="actions">
-        <button id="next-question" disabled>${state.index + 1 >= state.session.count ? "Finish" : "Next"}</button>
+        <button id="prev-question" class="secondary" ${
+          state.index <= 0 ? "disabled" : ""
+        }>Back</button>
+        <button id="next-question" ${hasAnswer ? "" : "disabled"}>${
+    isLastQuestion ? "Finish" : "Next"
+  }</button>
       </div>
     </div>
   `;
 
   if (item.self_grade) {
-    $("#save-typed-answer", panel).addEventListener("click", () => {
-      answerQuestion($("#typed-answer", panel).value, panelSelector);
+    const typedAnswer = $("#typed-answer", panel);
+    const saveButton = $("#save-typed-answer", panel);
+    const syncTypedControls = () => {
+      const changed = normalize(typedAnswer.value) !== normalize(item.selected_answer);
+      saveButton.disabled = !typedAnswer.value.trim() || !changed;
+      $("#next-question", panel).disabled = !hasSelectedAnswer(item) || changed;
+    };
+    syncTypedControls();
+    typedAnswer.addEventListener("input", syncTypedControls);
+    typedAnswer.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !saveButton.disabled) {
+        answerQuestion(typedAnswer.value, panelSelector);
+      }
+    });
+    saveButton.addEventListener("click", () => {
+      answerQuestion(typedAnswer.value, panelSelector);
     });
   } else {
     $$(".choice", panel).forEach((button) => {
@@ -841,9 +866,20 @@ function renderQuestion(panelSelector = "#test-panel") {
     });
   }
 
-  $("#next-question", panel).addEventListener("click", () => {
-    state.index += 1;
+  $("#prev-question", panel).addEventListener("click", () => {
+    if (state.index <= 0) return;
+    state.index -= 1;
     renderQuestion(panelSelector);
+  });
+
+  $("#next-question", panel).addEventListener("click", () => {
+    if (!hasSelectedAnswer(currentItem())) return;
+    if (state.index + 1 >= state.session.count) {
+      completeCurrentSession(panelSelector);
+    } else {
+      state.index += 1;
+      renderQuestion(panelSelector);
+    }
   });
 }
 
@@ -852,10 +888,12 @@ function normalize(value) {
 }
 
 async function answerQuestion(selected, panelSelector) {
-  if (state.answered) return;
-  state.answered = true;
   const item = currentItem();
+  if (!item) return;
   const panel = $(panelSelector);
+  const currentPosition = item.position;
+  const filters = state.session.filters;
+  const requestedCount = state.session.requestedCount;
 
   $$(".choice", panel).forEach((button) => {
     const isSelected = normalize(button.dataset.choice) === normalize(selected);
@@ -867,31 +905,25 @@ async function answerQuestion(selected, panelSelector) {
   const saveButton = $("#save-typed-answer", panel);
   if (saveButton) saveButton.disabled = true;
 
-  const saved = await api("/api/session/answer", {
-    method: "POST",
-    body: JSON.stringify({
-      session_id: state.session.session_id,
-      position: item.position,
-      selected_answer: selected,
-    }),
-  });
-  state.session = {
-    ...saved,
-    filters: state.session.filters,
-    requestedCount: state.session.requestedCount,
-  };
-  $("#next-question", panel).disabled = false;
-}
-
-function showFeedback(item, selected, correct, panel) {
-  const feedback = $("#feedback", panel);
-  const status = selected === null ? "Answer." : correct ? "Correct." : "Incorrect.";
-  feedback.innerHTML = `
-    <b>${status}</b>
-    <div>Answer: ${escapeHtml(item.answer)}</div>
-    ${item.explanation ? `<div>${escapeHtml(item.explanation)}</div>` : ""}
-  `;
-  feedback.classList.add("visible");
+  try {
+    const saved = await api("/api/session/answer", {
+      method: "POST",
+      body: JSON.stringify({
+        session_id: state.session.session_id,
+        position: currentPosition,
+        selected_answer: selected,
+      }),
+    });
+    state.session = {
+      ...saved,
+      filters,
+      requestedCount,
+    };
+    renderQuestion(panelSelector);
+  } catch (error) {
+    toast(error.message);
+    renderQuestion(panelSelector);
+  }
 }
 
 function renderFlashcard() {

@@ -427,11 +427,12 @@ IMPORT_LIMIT_VOCABULARY=20 IMPORT_LIMIT_MATH=10 IMPORT_LIMIT_ENGLISH=10 python3 
 2. Pick Vocabulary, Math, or Reading and Writing.
 3. For Math and Reading/Writing, choose one or more topics and difficulties.
 4. Choose a test size: 10, 20, or 30 questions.
-5. Complete the test before seeing score, correct answers, selected wrong answers, and explanations.
-6. Review missed questions from Review Incorrect.
-7. Use History to revisit completed tests and all questions in each test, right or wrong.
-8. Use Vocabulary Flashcards in word-to-definition, definition-to-word, or mixed mode.
-9. Use Settings to reset progress counters for one section without deleting questions, sources, or completed test history.
+5. Answer each question, using Back and Next to revisit reached questions and change answers before finishing.
+6. Complete the test before seeing score, correct answers, selected wrong answers, and explanations.
+7. Review missed questions from Review Incorrect.
+8. Use History to revisit completed tests and all questions in each test, right or wrong.
+9. Use Vocabulary Flashcards in word-to-definition, definition-to-word, or mixed mode.
+10. Use Settings to reset progress counters for one section without deleting questions, sources, or completed test history.
 
 ## Scheduling And Progress
 
