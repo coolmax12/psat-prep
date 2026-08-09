@@ -8,7 +8,7 @@ The app helps students practice with:
 - Math practice by topic and difficulty
 - Reading and Writing practice by topic and difficulty
 - Review of missed questions
-- Saved in-progress tests with editable answers and Back/Next navigation
+- Saved in-progress tests with editable answers and sticky Back/Next navigation
 - Completed test history with full result review, total time, and average time per question
 - Progress tracking, reset controls, answers, explanations, and source tracing
 
@@ -20,7 +20,7 @@ The current feature set includes:
 - A minimum 40% Hard-question target for Math and Reading/Writing tests when Hard questions are available in the selected filters
 - Topic rotation for broad Math and Reading/Writing tests
 - Source-order answer choices for imported Math and Reading/Writing questions so PDF explanations match the displayed A/B/C/D labels
-- A live in-test stopwatch with completed-test timing summaries
+- A live sticky in-test stopwatch next to the navigation buttons, plus completed-test timing summaries
 - Vocabulary flashcards with word-to-definition, definition-to-word, and mixed modes
 - Persistent local SQLite storage for questions, attempts, progress, saved sessions, and history
 
@@ -429,8 +429,8 @@ IMPORT_LIMIT_VOCABULARY=20 IMPORT_LIMIT_MATH=10 IMPORT_LIMIT_ENGLISH=10 python3 
 2. Pick Vocabulary, Math, or Reading and Writing.
 3. For Math and Reading/Writing, choose one or more topics and difficulties.
 4. Choose a test size: 10, 20, or 30 questions.
-5. Answer each question, using Back and Next to revisit reached questions and change answers before finishing.
-6. Watch elapsed test time while practicing.
+5. Answer each question, using the sticky Back and Next controls to revisit reached questions and change answers before finishing.
+6. Watch elapsed test time in the sticky bottom action row while practicing.
 7. Complete the test before seeing score, total time, average time per question, correct answers, selected wrong answers, and explanations.
 8. Review missed questions from Review Incorrect.
 9. Use History to revisit completed tests and all questions in each test, right or wrong.
