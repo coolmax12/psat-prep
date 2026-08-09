@@ -423,11 +423,11 @@ IMPORT_LIMIT_VOCABULARY=20 IMPORT_LIMIT_MATH=10 IMPORT_LIMIT_ENGLISH=10 python3 
 
 ## Scheduling And Progress
 
-Tests prefer fresh material first. If a test asks for more items than remain fresh, the app adds due review items, then older seen items.
+Tests prefer fresh material first. If a test asks for more items than remain fresh, the app adds due review items, then older seen items. Items are randomly sampled within those buckets instead of being pulled in source PDF order.
 
 Missed questions stay flagged for Review Incorrect and are also randomly reinjected into future normal tests. Normal tests reserve a small slice for missed-review items when available, while still prioritizing broad coverage of fresh source material.
 
-For Math and Reading/Writing, the sampler rotates across selected top-level topics so broad tests cover a range of skills.
+For Math and Reading/Writing, normal tests reserve at least 40% of the requested test size for Hard questions when Hard is available in the selected filters. The sampler also rotates across selected top-level topics so broad tests cover a range of skills.
 
 Correct answers increase mastery and push the item farther into the future. Wrong answers reset mastery, mark the item for review, and make it due again soon.
 

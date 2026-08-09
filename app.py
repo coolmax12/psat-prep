@@ -28,6 +28,7 @@ PORT = int(os.environ.get("PSAT_PORT", "8080"))
 DOMAINS = ("vocabulary", "math", "english")
 ITEM_TYPES = ("vocab", "multiple_choice")
 DIFFICULTIES = ("Easy", "Medium", "Hard")
+MIN_HARD_TEST_PERCENT = 40
 TOPICS = {
     "math": (
         "Algebra",
@@ -824,11 +825,22 @@ def fetch_balanced_bucket(
     exclude: Optional[set[int]] = None,
     topics: Optional[list[str]] = None,
     difficulties: Optional[list[str]] = None,
+    random_order: bool = False,
 ) -> list[sqlite3.Row]:
     if limit <= 0:
         return []
     if not TOPICS[domain]:
-        return fetch_bucket(conn, domain, limit, where, params, exclude, topics, difficulties)
+        return fetch_bucket(
+            conn,
+            domain,
+            limit,
+            where,
+            params,
+            exclude,
+            topics,
+            difficulties,
+            random_order,
+        )
 
     selected: list[sqlite3.Row] = []
     selected_ids = set(exclude or set())
@@ -849,6 +861,7 @@ def fetch_balanced_bucket(
                 selected_ids,
                 [topic],
                 difficulties,
+                random_order,
             )
             if not rows:
                 continue
@@ -869,9 +882,55 @@ def fetch_balanced_bucket(
             selected_ids,
             fallback_topics,
             difficulties,
+            random_order,
         )
         selected.extend(rows)
     return selected
+
+
+def progress_buckets(now: str) -> tuple[tuple[str, tuple[Any, ...]], ...]:
+    return (
+        ("seen_count = 0", ()),
+        ("next_due_at IS NOT NULL AND next_due_at <= ?", (now,)),
+        ("seen_count > 0", ()),
+    )
+
+
+def fetch_progress_items(
+    conn: sqlite3.Connection,
+    domain: str,
+    limit: int,
+    now: str,
+    selected_ids: set[int],
+    topics: list[str],
+    difficulties: list[str],
+) -> list[sqlite3.Row]:
+    rows: list[sqlite3.Row] = []
+    for where, params in progress_buckets(now):
+        bucket_rows = fetch_balanced_bucket(
+            conn,
+            domain,
+            limit - len(rows),
+            where,
+            params,
+            selected_ids,
+            topics,
+            difficulties,
+            True,
+        )
+        rows.extend(bucket_rows)
+        selected_ids.update(row["id"] for row in bucket_rows)
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def hard_question_target(domain: str, count: int, difficulties: list[str]) -> int:
+    if domain not in ("math", "english"):
+        return 0
+    if difficulties and "Hard" not in difficulties:
+        return 0
+    return (count * MIN_HARD_TEST_PERCENT + 99) // 100
 
 
 def choose_items(
@@ -898,6 +957,7 @@ def choose_items(
             None,
             topics,
             difficulties,
+            True,
         )
         rows = list(rows)
         random.shuffle(rows)
@@ -906,7 +966,23 @@ def choose_items(
     selected: list[sqlite3.Row] = []
     selected_ids: set[int] = set()
 
-    review_injection_count = min(count, max(1, count // 5))
+    hard_rows = fetch_progress_items(
+        conn,
+        domain,
+        hard_question_target(domain, count, difficulties),
+        now,
+        selected_ids,
+        topics,
+        ["Hard"],
+    )
+    selected.extend(hard_rows)
+
+    review_target = min(count, max(1, count // 5))
+    already_review_count = sum(1 for row in selected if row["needs_review"])
+    review_injection_count = min(
+        count - len(selected),
+        max(0, review_target - already_review_count),
+    )
     review_rows = fetch_bucket(
         conn,
         domain,
@@ -921,28 +997,18 @@ def choose_items(
     selected.extend(review_rows)
     selected_ids.update(row["id"] for row in review_rows)
 
-    for where, params in (
-        ("seen_count = 0", ()),
-        ("next_due_at IS NOT NULL AND next_due_at <= ?", (now,)),
-        ("seen_count > 0", ()),
-    ):
-        rows = fetch_balanced_bucket(
+    selected.extend(
+        fetch_progress_items(
             conn,
             domain,
             count - len(selected),
-            where,
-            params,
+            now,
             selected_ids,
             topics,
             difficulties,
         )
-        selected.extend(rows)
-        selected_ids.update(row["id"] for row in rows)
-        if len(selected) >= count:
-            break
-
-    if not TOPICS[domain]:
-        random.shuffle(selected)
+    )
+    random.shuffle(selected)
     return selected
 
 
