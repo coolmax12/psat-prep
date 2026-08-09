@@ -1,8 +1,8 @@
 # PSAT Prep
 
-PSAT Prep is a lightweight local web app for PSAT/SAT practice. It runs with a small Python HTTP server, SQLite, and vanilla HTML/CSS/JavaScript.
+PSAT Prep is a lightweight local web app for building and practicing from a personal PSAT/SAT question bank. It imports local source PDFs into SQLite, serves a browser-based practice dashboard, and supports vocabulary, Math, and Reading and Writing workflows without requiring a hosted service.
 
-The app helps students practice:
+The app helps students practice with:
 
 - Vocabulary tests and flashcards
 - Math practice by topic and difficulty
@@ -11,6 +11,18 @@ The app helps students practice:
 - Saved in-progress tests
 - Completed test history with full result review
 - Progress tracking, reset controls, answers, explanations, and source tracing
+
+The current feature set includes:
+
+- Local PDF import for SparkNotes vocabulary and College Board question-bank exports
+- Randomized test generation that avoids pulling questions in source PDF order
+- Fresh-first scheduling with due-review fallback and missed-question reinjection
+- A minimum 40% Hard-question target for Math and Reading/Writing tests when Hard questions are available in the selected filters
+- Topic rotation for broad Math and Reading/Writing tests
+- Vocabulary flashcards with word-to-definition, definition-to-word, and mixed modes
+- Persistent local SQLite storage for questions, attempts, progress, saved sessions, and history
+
+See `CHANGELOG.md` for a short summary of recent changes.
 
 ## Important Sharing Note
 
@@ -515,6 +527,7 @@ static/styles.css         Styling
 scripts/import_sources.py PDF-to-question-bank importer
 sources/                  Local source PDFs, ignored by git
 data/                     SQLite DB and generated images, ignored by git
+CHANGELOG.md              Recent project changes
 requirements.txt          Python dependencies
 ```
 
