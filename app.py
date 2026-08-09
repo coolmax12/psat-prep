@@ -952,6 +952,44 @@ def fetch_progress_items(
     return rows
 
 
+def fetch_fresh_topic_coverage_items(
+    conn: sqlite3.Connection,
+    domain: str,
+    limit: int,
+    selected_ids: set[int],
+    topics: list[str],
+    difficulties: list[str],
+) -> list[sqlite3.Row]:
+    if domain not in ("math", "english") or limit <= 0:
+        return []
+
+    topic_pool = list(topics or TOPICS[domain])
+    if not topic_pool:
+        return []
+
+    selected: list[sqlite3.Row] = []
+    random.shuffle(topic_pool)
+    for topic in topic_pool:
+        rows = fetch_bucket(
+            conn,
+            domain,
+            1,
+            "seen_count = 0",
+            (),
+            selected_ids,
+            [topic],
+            difficulties,
+            True,
+        )
+        if not rows:
+            continue
+        selected.append(rows[0])
+        selected_ids.add(rows[0]["id"])
+        if len(selected) >= limit:
+            break
+    return selected
+
+
 def hard_question_target(domain: str, count: int, difficulties: list[str]) -> int:
     if domain not in ("math", "english"):
         return 0
@@ -993,10 +1031,25 @@ def choose_items(
     selected: list[sqlite3.Row] = []
     selected_ids: set[int] = set()
 
+    coverage_rows = fetch_fresh_topic_coverage_items(
+        conn,
+        domain,
+        count,
+        selected_ids,
+        topics,
+        difficulties,
+    )
+    selected.extend(coverage_rows)
+
+    hard_target = max(
+        0,
+        hard_question_target(domain, count, difficulties)
+        - sum(1 for row in selected if row["difficulty"] == "Hard"),
+    )
     hard_rows = fetch_progress_items(
         conn,
         domain,
-        hard_question_target(domain, count, difficulties),
+        min(count - len(selected), hard_target),
         now,
         selected_ids,
         topics,

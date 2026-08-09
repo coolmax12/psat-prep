@@ -18,7 +18,7 @@ The current feature set includes:
 - Randomized test generation that avoids pulling questions in source PDF order
 - Fresh-first scheduling with due-review fallback and missed-question reinjection
 - A minimum 40% Hard-question target for Math and Reading/Writing tests when Hard questions are available in the selected filters
-- Topic rotation for broad Math and Reading/Writing tests
+- Fresh topic coverage for broad Math and Reading/Writing tests
 - Source-order answer choices for imported Math and Reading/Writing questions so PDF explanations match the displayed A/B/C/D labels
 - A live sticky in-test stopwatch next to the navigation buttons, plus completed-test timing summaries
 - Vocabulary flashcards with word-to-definition, definition-to-word, and mixed modes
@@ -445,7 +445,7 @@ For imported Math and Reading/Writing questions, answer choices stay in source P
 
 Missed questions stay flagged for Review Incorrect and are also randomly reinjected into future normal tests. Normal tests reserve a small slice for missed-review items when available, while still prioritizing broad coverage of fresh source material.
 
-For Math and Reading/Writing, normal tests reserve at least 40% of the requested test size for Hard questions when Hard is available in the selected filters. The sampler also rotates across selected top-level topics so broad tests cover a range of skills.
+For Math and Reading/Writing, normal tests first try to include one fresh question from each selected top-level topic. If no topic filter is selected, this means all four official topics for that section. Topics that have no fresh questions left in the selected filters are skipped for this coverage pass. The sampler still reserves at least 40% of the requested test size for Hard questions when Hard is available in the selected filters, then rotates through the usual fresh-first, due-review, and seen-question buckets to fill any remaining slots.
 
 Correct answers increase mastery and push the item farther into the future. Wrong answers reset mastery, mark the item for review, and make it due again soon.
 
