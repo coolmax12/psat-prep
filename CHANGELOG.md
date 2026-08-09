@@ -9,4 +9,5 @@
 - Preserved imported answer choice order for Math and Reading/Writing so displayed A/B/C/D labels match source PDF explanations.
 - Allowed in-progress test answers to be changed before finishing and added Back/Next navigation through reached questions.
 - Added a live test stopwatch plus completed-test total time and average time per question.
+- Moved the in-test stopwatch into the sticky bottom action row so it stays visible while scrolling.
 - Updated README documentation to describe the project feature set and the current test-sampling behavior.

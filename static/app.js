@@ -862,10 +862,6 @@ function renderQuestion(panelSelector = "#test-panel") {
         <span>${domains[item.domain]} / ${mode === "review" ? "Review" : "Test"}</span>
         <span>${state.index + 1} of ${state.session.count}</span>
       </div>
-      <div class="session-timing">
-        <span>Elapsed</span>
-        <b data-session-elapsed>${formatDuration(sessionElapsedSeconds(state.session))}</b>
-      </div>
       ${questionMeta(item)}
       <div class="prompt">${escapeHtml(item.question_prompt || item.prompt)}</div>
       ${promptImagesHtml(item)}
@@ -900,10 +896,14 @@ function renderQuestion(panelSelector = "#test-panel") {
             </div>
           `
       }
-      <div class="actions">
+      <div class="actions question-actions">
         <button id="prev-question" class="secondary" ${
           state.index <= 0 ? "disabled" : ""
         }>Back</button>
+        <div class="session-timing">
+          <span>Elapsed</span>
+          <b data-session-elapsed>${formatDuration(sessionElapsedSeconds(state.session))}</b>
+        </div>
         <button id="next-question" ${hasAnswer ? "" : "disabled"}>${
     isLastQuestion ? "Finish" : "Next"
   }</button>
