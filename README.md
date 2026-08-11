@@ -1,6 +1,6 @@
-# PSAT Prep
+# P/SAT Prep
 
-PSAT Prep is a lightweight local web app for building and practicing from a personal PSAT/SAT question bank. It imports local source PDFs into SQLite, serves a browser-based practice dashboard, and supports timed vocabulary, Math, and Reading and Writing workflows without requiring a hosted service.
+P/SAT Prep is a lightweight local web app for building and practicing from a personal P/SAT question bank. It imports local source PDFs into SQLite, serves a browser-based practice dashboard, and supports timed vocabulary, Math, and Reading and Writing workflows without requiring a hosted service.
 
 The app helps students practice with:
 
@@ -337,7 +337,7 @@ Create `/etc/systemd/system/psat-prep.service`:
 
 ```ini
 [Unit]
-Description=PSAT Prep local web app
+Description=P/SAT Prep local web app
 After=network.target
 
 [Service]
@@ -565,7 +565,7 @@ Then publish:
 git init
 git add .
 git status
-git commit -m "Add PSAT Prep app"
+git commit -m "Add P/SAT Prep app"
 git branch -M main
 git remote add origin https://github.com/YOUR_USERNAME/psat-prep.git
 git push -u origin main
