@@ -32,6 +32,7 @@ const state = {
   session: null,
   index: 0,
   score: 0,
+  answerSaving: false,
   timerId: null,
   flashFlipped: false,
   flashPass: 1,
@@ -772,6 +773,10 @@ async function completeCurrentSession(panelSelector) {
   if (!state.session || !state.session.session_id) {
     return;
   }
+  if (state.answerSaving) {
+    toast("Saving answer. Try again in a moment.");
+    return;
+  }
   stopSessionTimer();
   panel.innerHTML = `<div class="empty-state">Scoring test...</div>`;
   const session = anchorSessionTimer(await api("/api/session/complete", {
@@ -1046,12 +1051,14 @@ function renderQuestion(panelSelector = "#test-panel") {
   }
 
   $("#prev-question", panel).addEventListener("click", () => {
+    if (state.answerSaving) return;
     if (state.index <= 0) return;
     state.index -= 1;
     renderQuestion(panelSelector);
   });
 
   $("#next-question", panel).addEventListener("click", () => {
+    if (state.answerSaving) return;
     if (!hasSelectedAnswer(currentItem())) return;
     if (state.index + 1 >= state.session.count) {
       completeCurrentSession(panelSelector);
@@ -1067,6 +1074,7 @@ function normalize(value) {
 }
 
 async function answerQuestion(selected, panelSelector) {
+  if (state.answerSaving) return;
   const item = currentItem();
   if (!item) return;
   const panel = $(panelSelector);
@@ -1074,13 +1082,22 @@ async function answerQuestion(selected, panelSelector) {
   const filters = state.session.filters;
   const requestedCount = state.session.requestedCount;
   const choices = item.choices || [];
+  const prevButton = $("#prev-question", panel);
+  const nextButton = $("#next-question", panel);
 
+  state.answerSaving = true;
   $$(".choice", panel).forEach((button, index) => {
     const choice = choices[index] || button.dataset.choice;
     const isSelected = choiceMatchesValue(choice, index, selected);
     button.disabled = true;
     button.classList.toggle("selected", isSelected);
   });
+  if (prevButton) prevButton.disabled = true;
+  if (nextButton) {
+    nextButton.disabled = true;
+    nextButton.dataset.previousLabel = nextButton.textContent;
+    nextButton.textContent = "Saving...";
+  }
   const typedAnswer = $("#typed-answer", panel);
   if (typedAnswer) typedAnswer.disabled = true;
   const saveButton = $("#save-typed-answer", panel);
@@ -1102,6 +1119,8 @@ async function answerQuestion(selected, panelSelector) {
   } catch (error) {
     toast(error.message);
     renderQuestion(panelSelector);
+  } finally {
+    state.answerSaving = false;
   }
 }
 

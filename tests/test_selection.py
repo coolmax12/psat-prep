@@ -146,5 +146,44 @@ class MediaTests(unittest.TestCase):
         )
 
 
+class AnswerMatchingTests(unittest.TestCase):
+    def test_typed_answer_accepts_comma_separated_numeric_variants(self) -> None:
+        card = {"answer": "8.6, 43/5", "choices": []}
+
+        self.assertTrue(app.answer_is_correct("8.6", card))
+        self.assertTrue(app.answer_is_correct("43/5", card))
+
+    def test_typed_answer_accepts_equivalent_variants_from_answer_list(self) -> None:
+        card = {"answer": "10.33, 31/3", "choices": []}
+
+        self.assertTrue(app.answer_is_correct("10.33", card))
+        self.assertTrue(app.answer_is_correct("31/3", card))
+
+    def test_typed_answer_accepts_equivalent_decimals_and_fractions(self) -> None:
+        self.assertTrue(app.answer_is_correct("1.80", {"answer": "1.8, 9/5", "choices": []}))
+        self.assertTrue(app.answer_is_correct("0.32", {"answer": ".32, 8/25", "choices": []}))
+        self.assertTrue(app.answer_is_correct("31/3", {"answer": "10.33, 31/3", "choices": []}))
+
+    def test_typed_answer_accepts_precise_decimal_approximation_to_fraction(self) -> None:
+        card = {"answer": "2/3", "choices": []}
+
+        self.assertTrue(app.answer_is_correct(".666", card))
+        self.assertTrue(app.answer_is_correct(".667", card))
+        self.assertFalse(app.answer_is_correct(".66", card))
+
+    def test_text_answer_with_comma_is_not_split_into_partial_answers(self) -> None:
+        card = {"answer": "red, blue, and green", "choices": []}
+
+        self.assertTrue(app.answer_is_correct("red, blue, and green", card))
+        self.assertFalse(app.answer_is_correct("red", card))
+
+    def test_multiple_choice_accepts_label_or_choice_text(self) -> None:
+        card = {"answer": "B", "choices": ["linear", "quadratic", "exponential", "constant"]}
+
+        self.assertTrue(app.answer_is_correct("B", card))
+        self.assertTrue(app.answer_is_correct("quadratic", card))
+        self.assertFalse(app.answer_is_correct("linear", card))
+
+
 if __name__ == "__main__":
     unittest.main()

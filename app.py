@@ -14,6 +14,8 @@ import random
 import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
+from fractions import Fraction
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -411,6 +413,122 @@ def row_to_item(row: sqlite3.Row) -> dict[str, Any]:
 
 def normalize_choice(value: str) -> str:
     return re.sub(r"\s+", " ", value or "").strip().casefold()
+
+
+def decimal_places(value: str) -> int:
+    text = value.strip().rstrip("%")
+    if "/" in text:
+        return 0
+    if "." not in text:
+        return 0
+    return len(text.rsplit(".", 1)[1])
+
+
+def decimal_to_fraction(value: str) -> Optional[Fraction]:
+    try:
+        return Fraction(Decimal(value))
+    except (InvalidOperation, ValueError, ZeroDivisionError):
+        return None
+
+
+def parse_numeric_answer(value: str) -> Optional[Fraction]:
+    text = normalize_choice(value)
+    if not text:
+        return None
+    text = text.replace("\u2212", "-").rstrip("%").strip()
+    if re.fullmatch(r"[+-]?\d{1,3}(,\d{3})+(\.\d+)?", text):
+        text = text.replace(",", "")
+
+    mixed = re.fullmatch(
+        r"([+-]?\d+)\s+((?:\d+(?:\.\d*)?)|(?:\.\d+))/((?:\d+(?:\.\d*)?)|(?:\.\d+))",
+        text,
+    )
+    if mixed:
+        whole = int(mixed.group(1))
+        numerator = decimal_to_fraction(mixed.group(2))
+        denominator = decimal_to_fraction(mixed.group(3))
+        if numerator is None or denominator in (None, 0):
+            return None
+        fraction = numerator / denominator
+        return whole - fraction if whole < 0 else whole + fraction
+
+    compact = re.sub(r"\s+", "", text)
+    fraction = re.fullmatch(
+        r"([+-]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+)))/((?:\d+(?:\.\d*)?)|(?:\.\d+))",
+        compact,
+    )
+    if fraction:
+        numerator = decimal_to_fraction(fraction.group(1))
+        denominator = decimal_to_fraction(fraction.group(2))
+        if numerator is None or denominator in (None, 0):
+            return None
+        return numerator / denominator
+
+    if re.fullmatch(r"[+-]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))", compact):
+        return decimal_to_fraction(compact)
+    return None
+
+
+def numeric_answers_close(
+    selected: Fraction,
+    expected: Fraction,
+    selected_text: str,
+    expected_text: str,
+) -> bool:
+    if selected == expected:
+        return True
+    precision = max(decimal_places(selected_text), decimal_places(expected_text))
+    if precision < 3:
+        return False
+    return abs(selected - expected) < Fraction(1, 10**precision)
+
+
+def answer_variants(answer: str) -> list[str]:
+    text = str(answer or "").strip()
+    if not text:
+        return []
+    variants = [part.strip() for part in re.split(r"[,;]", text) if part.strip()]
+    if len(variants) > 1 and all(parse_numeric_answer(part) is not None for part in variants):
+        return variants
+    return [text]
+
+
+def text_or_numeric_match(selected: str, expected: str) -> bool:
+    if normalize_choice(selected) == normalize_choice(expected):
+        return True
+    selected_number = parse_numeric_answer(selected)
+    expected_number = parse_numeric_answer(expected)
+    if selected_number is None or expected_number is None:
+        return False
+    return numeric_answers_close(selected_number, expected_number, selected, expected)
+
+
+def multiple_choice_matches(selected: str, answer: str, choices: list[str]) -> bool:
+    selected_norm = normalize_choice(selected)
+    answer_norm = normalize_choice(answer)
+    if selected_norm == answer_norm:
+        return True
+
+    labels = [chr(ord("A") + index) for index in range(len(choices))]
+    selected_indexes = {
+        index
+        for index, choice in enumerate(choices)
+        if selected_norm in {normalize_choice(choice), normalize_choice(labels[index])}
+    }
+    answer_indexes = {
+        index
+        for index, choice in enumerate(choices)
+        if answer_norm in {normalize_choice(choice), normalize_choice(labels[index])}
+    }
+    return bool(selected_indexes & answer_indexes)
+
+
+def answer_is_correct(selected: str, card: dict[str, Any]) -> bool:
+    answer = str(card.get("answer", ""))
+    choices = [str(choice) for choice in (card.get("choices") or [])]
+    if len(choices) >= 2:
+        return multiple_choice_matches(selected, answer, choices)
+    return any(text_or_numeric_match(selected, variant) for variant in answer_variants(answer))
 
 
 def source_exists(conn: sqlite3.Connection, source_id: Optional[int], domain: str) -> bool:
@@ -1320,7 +1438,7 @@ def save_session_answer(conn: sqlite3.Connection, payload: dict[str, Any]) -> di
         raise ValueError("Practice question was not found.")
 
     card = parse_json(item_row["card_json"], {})
-    correct = normalize_choice(selected_answer) == normalize_choice(str(card.get("answer", "")))
+    correct = answer_is_correct(selected_answer, card)
     answered_at = iso()
     conn.execute(
         """
