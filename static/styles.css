@@ -568,6 +568,11 @@ p {
   overflow-wrap: anywhere;
 }
 
+.choice.image-choice {
+  grid-template-columns: minmax(0, 1fr);
+  padding: 8px;
+}
+
 .choice:hover {
   background: #f1f6f4;
   border-color: var(--primary);
@@ -615,6 +620,13 @@ p {
   width: min(180px, 36vw);
   max-height: 160px;
   object-fit: contain;
+}
+
+.choice-image.primary-choice-image {
+  width: auto;
+  max-height: none;
+  border: 0;
+  border-radius: 4px;
 }
 
 .feedback {

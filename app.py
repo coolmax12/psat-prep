@@ -131,11 +131,11 @@ def normalize_media(payload: dict[str, Any], choice_count: int = 0) -> dict[str,
         for page in media.get("source_pages", [])
         if str(page).strip().isdigit()
     ]
-    return {
-        "prompt_images": prompt_images,
-        "choice_images": choice_images,
-        "source_pages": source_pages,
-    }
+    normalized = dict(media)
+    normalized["prompt_images"] = prompt_images
+    normalized["choice_images"] = choice_images
+    normalized["source_pages"] = source_pages
+    return normalized
 
 
 def get_db() -> sqlite3.Connection:
@@ -1503,8 +1503,15 @@ def extract_pdf_source(conn: sqlite3.Connection, source_id: int) -> dict[str, An
         raise ValueError("Only PDF sources can be extracted.")
 
     try:
-        import fitz  # type: ignore
-    except ImportError as exc:
+        import pymupdf as fitz  # type: ignore
+    except ImportError:
+        try:
+            import fitz  # type: ignore
+        except ImportError as exc:
+            raise ValueError(
+                "PDF extraction requires PyMuPDF. Install dependencies with: python3 -m pip install -r requirements.txt"
+            ) from exc
+    except Exception as exc:
         raise ValueError(
             "PDF extraction requires PyMuPDF. Install dependencies with: python3 -m pip install -r requirements.txt"
         ) from exc

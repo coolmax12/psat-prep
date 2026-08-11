@@ -113,5 +113,38 @@ class ChooseItemsTests(unittest.TestCase):
         self.assertEqual(set(app.TOPICS["math"]), {row["topic"] for row in rows})
 
 
+class MediaTests(unittest.TestCase):
+    def test_create_item_preserves_pdf_media_modes(self) -> None:
+        conn = make_conn()
+
+        item = app.create_item(
+            conn,
+            {
+                "domain": "math",
+                "item_type": "multiple_choice",
+                "prompt": "Fallback text",
+                "answer": "B",
+                "choices": ["A", "B", "C", "D"],
+                "topic": "Algebra",
+                "difficulty": "Easy",
+                "prompt_images": ["data/assets/questions/math/q-prompt-01.png"],
+                "choice_images": ["data/assets/questions/math/q-choice-A.png"],
+                "media": {
+                    "source_pages": [12],
+                    "prompt_image_mode": "primary",
+                    "choice_image_mode": "primary",
+                },
+            },
+        )
+
+        self.assertEqual(item["media"]["prompt_image_mode"], "primary")
+        self.assertEqual(item["media"]["choice_image_mode"], "primary")
+        self.assertEqual(item["media"]["source_pages"], [12])
+        self.assertEqual(
+            item["media"]["choice_images"],
+            ["data/assets/questions/math/q-choice-A.png", "", "", ""],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

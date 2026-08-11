@@ -238,11 +238,24 @@ function promptImagesHtml(item) {
   `;
 }
 
-function choiceImageHtml(item, index) {
+function hasPrimaryPromptImage(item) {
+  const images = (item.media && item.media.prompt_images) || [];
+  return Boolean(images.length && item.media && item.media.prompt_image_mode === "primary");
+}
+
+function promptHtml(item) {
+  const imagesHtml = promptImagesHtml(item);
+  if (hasPrimaryPromptImage(item)) return imagesHtml;
+  const text = item.question_prompt || item.prompt;
+  const promptText = text ? `<div class="prompt">${escapeHtml(text)}</div>` : "";
+  return `${promptText}${imagesHtml}`;
+}
+
+function choiceImageHtml(item, index, primary = false) {
   const choiceImages = (item.media && item.media.choice_images) || [];
   const image = choiceImages[index];
   if (!image) return "";
-  return `<img class="choice-image" src="${escapeHtml(mediaUrl(image))}" alt="">`;
+  return `<img class="choice-image ${primary ? "primary-choice-image" : ""}" src="${escapeHtml(mediaUrl(image))}" alt="">`;
 }
 
 function firstUnansweredIndex(session) {
@@ -773,7 +786,7 @@ async function completeCurrentSession(panelSelector) {
 function selectedAnswerHtml(item) {
   if (!item.selected_answer) return "";
   const inChoices = (item.choices || []).some(
-    (choice) => normalize(choice) === normalize(item.selected_answer)
+    (choice, index) => choiceMatchesValue(choice, index, item.selected_answer)
   );
   if (inChoices) return "";
   return `
@@ -789,6 +802,51 @@ function choiceDisplayText(choice, index) {
   return `${String.fromCharCode(65 + index)}. ${value}`;
 }
 
+function choiceLabel(index) {
+  return String.fromCharCode(65 + index);
+}
+
+function hasPrimaryChoiceImage(item, index) {
+  const choiceImages = (item.media && item.media.choice_images) || [];
+  return Boolean(
+    choiceImages[index] && item.media && item.media.choice_image_mode === "primary"
+  );
+}
+
+function choiceMatchesValue(choice, index, value) {
+  const normalizedValue = normalize(value);
+  return (
+    normalize(choice) === normalizedValue ||
+    normalize(choiceLabel(index)) === normalizedValue
+  );
+}
+
+function choiceContentHtml(item, choice, index) {
+  const primaryImage = hasPrimaryChoiceImage(item, index);
+  if (primaryImage) {
+    return choiceImageHtml(item, index, true);
+  }
+  return `
+    <span class="choice-text">${escapeHtml(choiceDisplayText(choice, index))}</span>
+    ${choiceImageHtml(item, index)}
+  `;
+}
+
+function correctChoiceIndex(item) {
+  const choices = item.choices || [];
+  return choices.findIndex((choice, index) => choiceMatchesValue(choice, index, item.answer));
+}
+
+function correctAnswerHtml(item) {
+  const index = correctChoiceIndex(item);
+  const display = index >= 0 && hasPrimaryChoiceImage(item, index)
+    ? choiceLabel(index)
+    : index >= 0
+      ? choiceDisplayText(item.choices[index], index)
+      : item.answer;
+  return `<b>Correct answer: ${escapeHtml(display)}</b>`;
+}
+
 function resultChoicesHtml(item) {
   const choices = item.choices || [];
   if (!choices.length) return selectedAnswerHtml(item);
@@ -796,11 +854,12 @@ function resultChoicesHtml(item) {
     <div class="choices result-choices">
       ${choices
         .map((choice, index) => {
-          const selected = normalize(choice) === normalize(item.selected_answer);
-          const correct = normalize(choice) === normalize(item.answer);
+          const selected = choiceMatchesValue(choice, index, item.selected_answer);
+          const correct = choiceMatchesValue(choice, index, item.answer);
           const classes = [
             "choice",
             "static-choice",
+            hasPrimaryChoiceImage(item, index) ? "image-choice" : "",
             correct ? "correct" : "",
             selected && !item.correct ? "incorrect" : "",
             selected ? "selected" : "",
@@ -809,8 +868,7 @@ function resultChoicesHtml(item) {
             .join(" ");
           return `
             <div class="${classes}">
-              <span>${escapeHtml(choiceDisplayText(choice, index))}</span>
-              ${choiceImageHtml(item, index)}
+              ${choiceContentHtml(item, choice, index)}
             </div>
           `;
         })
@@ -850,11 +908,10 @@ function renderResults(panelSelector) {
             }</span>
                 </div>
                 ${questionMeta(item)}
-                <div class="prompt">${escapeHtml(item.question_prompt || item.prompt)}</div>
-                ${promptImagesHtml(item)}
+                ${promptHtml(item)}
                 ${resultChoicesHtml(item)}
                 <div class="feedback visible">
-                  <b>Correct answer: ${escapeHtml(item.answer)}</b>
+                  ${correctAnswerHtml(item)}
                   ${item.explanation ? `<div>${escapeHtml(item.explanation)}</div>` : ""}
                 </div>
               </article>
@@ -912,8 +969,7 @@ function renderQuestion(panelSelector = "#test-panel") {
         <span>${state.index + 1} of ${state.session.count}</span>
       </div>
       ${questionMeta(item)}
-      <div class="prompt">${escapeHtml(item.question_prompt || item.prompt)}</div>
-      ${promptImagesHtml(item)}
+      ${promptHtml(item)}
       ${
         item.self_grade
           ? `
@@ -932,11 +988,12 @@ function renderQuestion(panelSelector = "#test-panel") {
               ${choices
                 .map(
                   (choice, index) => {
-                    const selected = normalize(choice) === normalize(item.selected_answer);
+                    const selected = choiceMatchesValue(choice, index, item.selected_answer);
                     return `
-                    <button class="choice ${selected ? "selected" : ""}" data-choice="${escapeHtml(choice)}">
-                      <span>${escapeHtml(choiceDisplayText(choice, index))}</span>
-                      ${choiceImageHtml(item, index)}
+                    <button class="choice ${hasPrimaryChoiceImage(item, index) ? "image-choice" : ""} ${
+                      selected ? "selected" : ""
+                    }" data-choice="${escapeHtml(choice)}">
+                      ${choiceContentHtml(item, choice, index)}
                     </button>
                   `;
                   }
@@ -1016,9 +1073,11 @@ async function answerQuestion(selected, panelSelector) {
   const currentPosition = item.position;
   const filters = state.session.filters;
   const requestedCount = state.session.requestedCount;
+  const choices = item.choices || [];
 
-  $$(".choice", panel).forEach((button) => {
-    const isSelected = normalize(button.dataset.choice) === normalize(selected);
+  $$(".choice", panel).forEach((button, index) => {
+    const choice = choices[index] || button.dataset.choice;
+    const isSelected = choiceMatchesValue(choice, index, selected);
     button.disabled = true;
     button.classList.toggle("selected", isSelected);
   });
