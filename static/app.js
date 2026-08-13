@@ -259,6 +259,23 @@ function choiceImageHtml(item, index, primary = false) {
   return `<img class="choice-image ${primary ? "primary-choice-image" : ""}" src="${escapeHtml(mediaUrl(image))}" alt="">`;
 }
 
+function explanationImagesHtml(item) {
+  const images = (item.media && item.media.explanation_images) || [];
+  if (!images.length) return "";
+  return `
+    <div class="media-grid explanation-media">
+      ${images
+        .map((image) => `<img src="${escapeHtml(mediaUrl(image))}" alt="Explanation image">`)
+        .join("")}
+    </div>
+  `;
+}
+
+function hasPrimaryExplanationImage(item) {
+  const images = (item.media && item.media.explanation_images) || [];
+  return Boolean(images.length && item.media && item.media.explanation_image_mode === "primary");
+}
+
 function firstUnansweredIndex(session) {
   const index = session.items.findIndex((item) => !item.answered);
   return index === -1 ? session.items.length : index;
@@ -852,6 +869,15 @@ function correctAnswerHtml(item) {
   return `<b>Correct answer: ${escapeHtml(display)}</b>`;
 }
 
+function explanationHtml(item) {
+  const imagesHtml = explanationImagesHtml(item);
+  const textHtml = item.explanation ? `<div>${escapeHtml(item.explanation)}</div>` : "";
+  if (hasPrimaryExplanationImage(item)) {
+    return imagesHtml || textHtml;
+  }
+  return `${textHtml}${imagesHtml}`;
+}
+
 function resultChoicesHtml(item) {
   const choices = item.choices || [];
   if (!choices.length) return selectedAnswerHtml(item);
@@ -917,7 +943,7 @@ function renderResults(panelSelector) {
                 ${resultChoicesHtml(item)}
                 <div class="feedback visible">
                   ${correctAnswerHtml(item)}
-                  ${item.explanation ? `<div>${escapeHtml(item.explanation)}</div>` : ""}
+                  ${explanationHtml(item)}
                 </div>
               </article>
             `

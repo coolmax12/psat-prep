@@ -322,13 +322,29 @@ def content_x_bounds_for_band(
     top: float,
     bottom: float,
 ) -> tuple[float, float]:
+    left, right, _ = content_bounds_for_band(page, lines, top, bottom)
+    return left, right
+
+
+def content_bounds_for_band(
+    page: fitz.Page,
+    lines: list[dict[str, Any]],
+    top: float,
+    bottom: float,
+) -> tuple[float, float, float]:
     left: float | None = None
     right: float | None = None
+    content_bottom: float | None = None
 
     def include(rect: fitz.Rect) -> None:
-        nonlocal left, right
+        nonlocal left, right, content_bottom
         left = float(rect.x0) if left is None else min(left, float(rect.x0))
         right = float(rect.x1) if right is None else max(right, float(rect.x1))
+        content_bottom = (
+            float(rect.y1)
+            if content_bottom is None
+            else max(content_bottom, float(rect.y1))
+        )
 
     for line in lines:
         rect = fitz.Rect(line["bbox"])
@@ -346,8 +362,16 @@ def content_x_bounds_for_band(
                 include(fitz.Rect(rect))
 
     if left is None or right is None:
-        return 0.0, page.rect.width
-    return max(0.0, left - PDF_CLIP_MARGIN), min(page.rect.width, right + PDF_CLIP_MARGIN)
+        return 0.0, page.rect.width, bottom
+    clipped_bottom = min(
+        page.rect.height,
+        max(top + PDF_MIN_CLIP_HEIGHT, (content_bottom or bottom) + PDF_CLIP_MARGIN),
+    )
+    return (
+        max(0.0, left - PDF_CLIP_MARGIN),
+        min(page.rect.width, right + PDF_CLIP_MARGIN),
+        clipped_bottom,
+    )
 
 
 def render_prompt_images(doc: fitz.Document, group: dict[str, Any], domain: str) -> list[str]:
@@ -455,11 +479,46 @@ def render_question_media(
     group: dict[str, Any],
     domain: str,
     choice_count: int,
-) -> tuple[list[str], list[str]]:
+) -> tuple[list[str], list[str], list[str]]:
     return (
         render_prompt_images(doc, group, domain),
         render_choice_images(doc, group, domain, choice_count),
+        render_explanation_images(doc, group, domain) if domain == "math" else [],
     )
+
+
+def render_explanation_images(
+    doc: fitz.Document,
+    group: dict[str, Any],
+    domain: str,
+) -> list[str]:
+    qid = group["qid"]
+    image_paths: list[str] = []
+    output_dir = app.DB_PATH.parent / "assets" / "questions" / domain
+    saw_explanation = False
+
+    for sequence, page_info in enumerate(group["pages"], start=1):
+        page = doc[page_info["page_index"]]
+        lines = page_text_line_boxes(page)
+
+        if not saw_explanation:
+            start_line = first_line_box(lines, r"^Correct Answer:") or first_line_box(
+                lines,
+                r"^Rationale$",
+            )
+            if start_line is None:
+                continue
+            saw_explanation = True
+            top = float(start_line["bbox"].y0) - PDF_CLIP_MARGIN
+        else:
+            top = 0.0
+
+        left, right, bottom = content_bounds_for_band(page, lines, top, page.rect.height)
+        output_path = output_dir / f"{qid}-explanation-{sequence:02d}.png"
+        if save_pixmap(page, output_path, top, bottom, left, right):
+            image_paths.append(app.media_reference(output_path))
+
+    return image_paths
 
 
 def insert_source_pages(conn: Any, group: dict[str, Any], source_id: int) -> None:
@@ -542,7 +601,12 @@ def parse_question_group(
     if not prompt:
         prompt = f"See source image for question {group['qid']}."
 
-    prompt_images, choice_images = render_question_media(doc, group, domain, len(choices))
+    prompt_images, choice_images, explanation_images = render_question_media(
+        doc,
+        group,
+        domain,
+        len(choices),
+    )
     media = {
         "source_pages": [page["page_number"] for page in group["pages"]],
     }
@@ -550,6 +614,8 @@ def parse_question_group(
         media["prompt_image_mode"] = "primary"
     if any(choice_images):
         media["choice_image_mode"] = "primary"
+    if explanation_images:
+        media["explanation_image_mode"] = "primary"
 
     return {
         "domain": domain,
@@ -565,6 +631,7 @@ def parse_question_group(
         "question_identifier": group["qid"],
         "prompt_images": prompt_images,
         "choice_images": choice_images,
+        "explanation_images": explanation_images,
         "media": media,
     }
 
