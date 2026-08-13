@@ -8,6 +8,7 @@ param(
     [string]$PythonPath = "",
     [string]$DatabasePath = "",
     [switch]$ForceRestart,
+    [switch]$SkipGitCheck,
     [switch]$NoDependencyInstall
 )
 
@@ -285,6 +286,19 @@ try {
     }
 
     Set-Location $RepoRoot
+
+    if ($SkipGitCheck) {
+        Write-UpdateLog "Starting server health check in $RepoRoot."
+        if (Test-ServerRunning) {
+            Write-UpdateLog "PSAT server is already listening on port $Port."
+            exit 0
+        }
+
+        Write-UpdateLog "Server is not running; starting it."
+        Start-Server
+        exit 0
+    }
+
     Write-UpdateLog "Starting update check for $Remote/$Branch in $RepoRoot."
 
     if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot ".git"))) {

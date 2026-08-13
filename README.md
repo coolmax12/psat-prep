@@ -311,6 +311,24 @@ python3 scripts/import_sources.py
 
 That command resets the imported question bank and progress for the configured database.
 
+## Keep Running On Windows
+
+The Windows helper scripts can keep a local PSAT Prep server running while your Windows user is logged in.
+
+Install the hourly git updater:
+
+```powershell
+.\scripts\install_hourly_update_task.ps1 -RunNow
+```
+
+Install the server watchdog:
+
+```powershell
+.\scripts\install_server_watchdog_task.ps1 -RunNow
+```
+
+The watchdog checks every 5 minutes by default. If the server is not listening on the configured port, it starts `app.py` with `PSAT_HOST=0.0.0.0` and `PSAT_PORT=8080`. Logs are written to `data\logs\update-and-restart.log`.
+
 ## Run On A Home Linux Server
 
 Run on all network interfaces:
