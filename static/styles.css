@@ -616,6 +616,15 @@ p {
   background: #fff;
 }
 
+.explanation-media {
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: 10px;
+}
+
+.explanation-media img {
+  width: 100%;
+}
+
 .choice-image {
   width: min(180px, 36vw);
   max-height: 160px;

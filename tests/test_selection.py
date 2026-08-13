@@ -129,20 +129,27 @@ class MediaTests(unittest.TestCase):
                 "difficulty": "Easy",
                 "prompt_images": ["data/assets/questions/math/q-prompt-01.png"],
                 "choice_images": ["data/assets/questions/math/q-choice-A.png"],
+                "explanation_images": ["data/assets/questions/math/q-explanation-01.png"],
                 "media": {
                     "source_pages": [12],
                     "prompt_image_mode": "primary",
                     "choice_image_mode": "primary",
+                    "explanation_image_mode": "primary",
                 },
             },
         )
 
         self.assertEqual(item["media"]["prompt_image_mode"], "primary")
         self.assertEqual(item["media"]["choice_image_mode"], "primary")
+        self.assertEqual(item["media"]["explanation_image_mode"], "primary")
         self.assertEqual(item["media"]["source_pages"], [12])
         self.assertEqual(
             item["media"]["choice_images"],
             ["data/assets/questions/math/q-choice-A.png", "", "", ""],
+        )
+        self.assertEqual(
+            item["media"]["explanation_images"],
+            ["data/assets/questions/math/q-explanation-01.png"],
         )
 
 

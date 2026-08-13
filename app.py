@@ -127,6 +127,9 @@ def normalize_media(payload: dict[str, Any], choice_count: int = 0) -> dict[str,
         choice_images = (choice_images + [""] * choice_count)[:choice_count]
     else:
         choice_images = []
+    explanation_images = as_string_list(
+        payload.get("explanation_images", media.get("explanation_images"))
+    )
 
     source_pages = [
         int(page)
@@ -136,6 +139,7 @@ def normalize_media(payload: dict[str, Any], choice_count: int = 0) -> dict[str,
     normalized = dict(media)
     normalized["prompt_images"] = prompt_images
     normalized["choice_images"] = choice_images
+    normalized["explanation_images"] = explanation_images
     normalized["source_pages"] = source_pages
     return normalized
 

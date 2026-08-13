@@ -48,12 +48,14 @@ def merge_pdf_media(
     source_pages: list[int],
     prompt_images: list[str],
     choice_images: list[str],
+    explanation_images: list[str],
     choice_count: int,
 ) -> dict[str, Any]:
     media = dict(existing_media)
     media["source_pages"] = source_pages
     media["prompt_images"] = prompt_images
     media["choice_images"] = (choice_images + [""] * choice_count)[:choice_count]
+    media["explanation_images"] = explanation_images
     if prompt_images:
         media["prompt_image_mode"] = "primary"
     else:
@@ -62,16 +64,44 @@ def merge_pdf_media(
         media["choice_image_mode"] = "primary"
     else:
         media.pop("choice_image_mode", None)
+    if explanation_images:
+        media["explanation_image_mode"] = "primary"
+    else:
+        media.pop("explanation_image_mode", None)
     return media
 
 
-def refresh_domain(conn: Any, domain: str, pdf_path: Path) -> tuple[int, int]:
+def sync_session_card_media(conn: Any, item_id: int, media: dict[str, Any]) -> int:
+    rows = conn.execute(
+        """
+        SELECT id, card_json
+        FROM practice_session_items
+        WHERE item_id = ?
+        """,
+        (item_id,),
+    ).fetchall()
+    updated = 0
+    for row in rows:
+        card = app.parse_json(row["card_json"], {})
+        if not isinstance(card, dict):
+            continue
+        card["media"] = media
+        conn.execute(
+            "UPDATE practice_session_items SET card_json = ? WHERE id = ?",
+            (json.dumps(card), row["id"]),
+        )
+        updated += 1
+    return updated
+
+
+def refresh_domain(conn: Any, domain: str, pdf_path: Path) -> tuple[int, int, int]:
     if not pdf_path.exists():
         raise SystemExit(f"Missing source PDF: {pdf_path}")
 
     doc = fitz.open(str(pdf_path))
     groups = group_question_pages(doc)
     updated = 0
+    snapshot_updated = 0
     missing = 0
 
     for index, group in enumerate(groups, start=1):
@@ -91,7 +121,7 @@ def refresh_domain(conn: Any, domain: str, pdf_path: Path) -> tuple[int, int]:
             len(app.parse_json(row["choices_json"], []))
             for row in rows
         )
-        prompt_images, choice_images = render_question_media(
+        prompt_images, choice_images, explanation_images = render_question_media(
             doc,
             group,
             domain,
@@ -106,18 +136,20 @@ def refresh_domain(conn: Any, domain: str, pdf_path: Path) -> tuple[int, int]:
                 source_pages,
                 prompt_images,
                 choice_images,
+                explanation_images,
                 choice_count,
             )
             conn.execute(
                 "UPDATE items SET media_json = ? WHERE id = ?",
                 (json.dumps(media), row["id"]),
             )
+            snapshot_updated += sync_session_card_media(conn, row["id"], media)
             updated += 1
 
         if index % 100 == 0:
             print(f"{domain}: refreshed media for {index}/{len(groups)} PDF questions", flush=True)
 
-    return updated, missing
+    return updated, snapshot_updated, missing
 
 
 def main() -> None:
@@ -125,9 +157,16 @@ def main() -> None:
     results: dict[str, dict[str, int]] = {}
     with app.get_db() as conn:
         for domain, pdf_path in QUESTION_DOMAINS.items():
-            updated, missing = refresh_domain(conn, domain, pdf_path)
-            results[domain] = {"updated": updated, "missing": missing}
-            print(f"{domain}: updated {updated}, missing {missing}", flush=True)
+            updated, snapshot_updated, missing = refresh_domain(conn, domain, pdf_path)
+            results[domain] = {
+                "updated": updated,
+                "session_snapshots_updated": snapshot_updated,
+                "missing": missing,
+            }
+            print(
+                f"{domain}: updated {updated}, session snapshots {snapshot_updated}, missing {missing}",
+                flush=True,
+            )
 
     print(json.dumps(results, indent=2), flush=True)
 
