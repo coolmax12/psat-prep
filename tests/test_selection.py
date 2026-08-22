@@ -282,6 +282,35 @@ class AnswerMatchingTests(unittest.TestCase):
         self.assertTrue(app.answer_is_correct("0.32", {"answer": ".32, 8/25", "choices": []}))
         self.assertTrue(app.answer_is_correct("31/3", {"answer": "10.33, 31/3", "choices": []}))
 
+    def test_typed_answer_accepts_either_or_numeric_answers(self) -> None:
+        card = {"answer": "either 2 or 8", "choices": []}
+
+        self.assertTrue(app.answer_is_correct("2", card))
+        self.assertTrue(app.answer_is_correct("8", card))
+        self.assertFalse(app.answer_is_correct("5", card))
+
+    def test_typed_answer_accepts_serial_numeric_answer_list(self) -> None:
+        card = {"answer": "either 7, 8, or 13", "choices": []}
+
+        self.assertTrue(app.answer_is_correct("7", card))
+        self.assertTrue(app.answer_is_correct("8", card))
+        self.assertTrue(app.answer_is_correct("13", card))
+        self.assertFalse(app.answer_is_correct("12", card))
+
+    def test_typed_answer_uses_explanation_numeric_examples_as_fallback(self) -> None:
+        card = {
+            "answer": "One method for solving the system is to add corresponding sides",
+            "choices": [],
+            "explanation": (
+                "The correct answer is . One method is to add corresponding sides. "
+                "Note that 3/2 and 1.5 are examples of ways to enter a correct answer."
+            ),
+        }
+
+        self.assertTrue(app.answer_is_correct("3/2", card))
+        self.assertTrue(app.answer_is_correct("1.5", card))
+        self.assertFalse(app.answer_is_correct("2", card))
+
     def test_typed_answer_accepts_precise_decimal_approximation_to_fraction(self) -> None:
         card = {"answer": "2/3", "choices": []}
 

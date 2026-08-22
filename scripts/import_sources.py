@@ -214,13 +214,20 @@ def answer_from_rationale(lines: list[str], rationale_index: int) -> str:
         re.IGNORECASE,
     )
     answer = answer_match.group(1).strip() if answer_match else ""
-    if answer in {"", "."}:
-        note_match = re.search(
-            r"\bNote that ([^.;]+?) (?:and|or) [^.;]+ are examples\b",
-            text,
-            re.IGNORECASE,
+    note_match = re.search(
+        r"\bNote that (.+?) (?:are examples|is an example) "
+        r"of ways to enter a correct answer\b",
+        text,
+        re.IGNORECASE,
+    )
+    note_answer = note_match.group(1).strip() if note_match else ""
+    if note_answer:
+        answer_variants = app.answer_variants(answer)
+        numeric_answer = bool(answer_variants) and all(
+            app.parse_numeric_answer(variant) is not None for variant in answer_variants
         )
-        answer = note_match.group(1).strip() if note_match else ""
+        if answer in {"", "."} or not numeric_answer:
+            answer = note_answer
     return answer.strip(" .")
 
 

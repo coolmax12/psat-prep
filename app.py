@@ -492,6 +492,42 @@ def parse_numeric_answer(value: str) -> Optional[Fraction]:
     return None
 
 
+NUMERIC_ANSWER_TOKEN = re.compile(
+    r"[+-]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d*)?|\.\d+)"
+    r"(?:\s*/\s*[+-]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d*)?|\.\d+))?"
+)
+
+
+def numeric_list_variants(value: str) -> list[str]:
+    text = str(value or "").strip()
+    if not text:
+        return []
+    text = re.sub(r"^note that\s+", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"^the correct answer is\s+", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"^either\s+", "", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"\s+(?:are examples|is an example) of ways to enter a correct answer\.?$",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    matches = list(NUMERIC_ANSWER_TOKEN.finditer(text))
+    if len(matches) < 2:
+        return []
+
+    remainder = NUMERIC_ANSWER_TOKEN.sub("", text)
+    remainder = re.sub(r"\b(?:either|or|and|one|of)\b", "", remainder, flags=re.IGNORECASE)
+    remainder = re.sub(r"[\s,.;:()]+", "", remainder)
+    if remainder:
+        return []
+
+    variants = [match.group(0).strip() for match in matches]
+    if all(parse_numeric_answer(variant) is not None for variant in variants):
+        return variants
+    return []
+
+
 def numeric_answers_close(
     selected: Fraction,
     expected: Fraction,
@@ -510,10 +546,40 @@ def answer_variants(answer: str) -> list[str]:
     text = str(answer or "").strip()
     if not text:
         return []
+    numeric_variants = numeric_list_variants(text)
+    if numeric_variants:
+        return numeric_variants
     variants = [part.strip() for part in re.split(r"[,;]", text) if part.strip()]
     if len(variants) > 1 and all(parse_numeric_answer(part) is not None for part in variants):
         return variants
     return [text]
+
+
+def explanation_answer_variants(explanation: str) -> list[str]:
+    text = str(explanation or "")
+    if not text:
+        return []
+    match = re.search(
+        r"\bNote that (.+?) (?:are examples|is an example) "
+        r"of ways to enter a correct answer\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return numeric_list_variants(match.group(1)) if match else []
+
+
+def accepted_answer_variants(card: dict[str, Any]) -> list[str]:
+    seen: set[str] = set()
+    variants: list[str] = []
+    for variant in [
+        *answer_variants(str(card.get("answer", ""))),
+        *explanation_answer_variants(str(card.get("explanation", ""))),
+    ]:
+        normalized = normalize_choice(variant)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            variants.append(variant)
+    return variants
 
 
 def text_or_numeric_match(selected: str, expected: str) -> bool:
@@ -551,7 +617,7 @@ def answer_is_correct(selected: str, card: dict[str, Any]) -> bool:
     choices = [str(choice) for choice in (card.get("choices") or [])]
     if len(choices) >= 2:
         return multiple_choice_matches(selected, answer, choices)
-    return any(text_or_numeric_match(selected, variant) for variant in answer_variants(answer))
+    return any(text_or_numeric_match(selected, variant) for variant in accepted_answer_variants(card))
 
 
 def source_exists(conn: sqlite3.Connection, source_id: Optional[int], domain: str) -> bool:
