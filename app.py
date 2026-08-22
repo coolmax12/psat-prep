@@ -223,6 +223,25 @@ def migrate_db(conn: sqlite3.Connection) -> None:
             ON practice_session_items(session_id, position);
         """
     )
+    conn.execute(
+        """
+        UPDATE items
+        SET needs_review = 0
+        WHERE needs_review = 1
+          AND id IN (
+              SELECT latest.item_id
+              FROM attempts latest
+              WHERE latest.correct = 1
+                AND latest.id = (
+                    SELECT attempt.id
+                    FROM attempts attempt
+                    WHERE attempt.item_id = latest.item_id
+                    ORDER BY attempt.attempted_at DESC, attempt.id DESC
+                    LIMIT 1
+                )
+          )
+        """
+    )
 
 
 def init_db() -> None:
@@ -1037,9 +1056,15 @@ def fetch_balanced_bucket(
     return selected
 
 
-def progress_buckets(now: str) -> tuple[tuple[str, tuple[Any, ...]], ...]:
+def normal_pool_buckets() -> tuple[tuple[str, tuple[Any, ...]], ...]:
     return (
         ("seen_count = 0", ()),
+        ("needs_review = 1", ()),
+    )
+
+
+def exhausted_pool_buckets(now: str) -> tuple[tuple[str, tuple[Any, ...]], ...]:
+    return (
         ("next_due_at IS NOT NULL AND next_due_at <= ?", (now,)),
         ("seen_count > 0", ()),
     )
@@ -1053,9 +1078,13 @@ def fetch_progress_items(
     selected_ids: set[int],
     topics: list[str],
     difficulties: list[str],
+    include_exhausted_pool: bool = False,
 ) -> list[sqlite3.Row]:
     rows: list[sqlite3.Row] = []
-    for where, params in progress_buckets(now):
+    buckets = normal_pool_buckets()
+    if include_exhausted_pool:
+        buckets = (*buckets, *exhausted_pool_buckets(now))
+    for where, params in buckets:
         bucket_rows = fetch_balanced_bucket(
             conn,
             domain,
@@ -1072,6 +1101,27 @@ def fetch_progress_items(
         if len(rows) >= limit:
             break
     return rows
+
+
+def normal_pool_has_items(
+    conn: sqlite3.Connection,
+    domain: str,
+    topics: list[str],
+    difficulties: list[str],
+) -> bool:
+    return bool(
+        fetch_bucket(
+            conn,
+            domain,
+            1,
+            "(seen_count = 0 OR needs_review = 1)",
+            (),
+            None,
+            topics,
+            difficulties,
+            True,
+        )
+    )
 
 
 def fetch_fresh_topic_coverage_items(
@@ -1152,6 +1202,7 @@ def choose_items(
 
     selected: list[sqlite3.Row] = []
     selected_ids: set[int] = set()
+    include_exhausted_pool = not normal_pool_has_items(conn, domain, topics, difficulties)
 
     coverage_rows = fetch_fresh_topic_coverage_items(
         conn,
@@ -1176,6 +1227,7 @@ def choose_items(
         selected_ids,
         topics,
         ["Hard"],
+        include_exhausted_pool,
     )
     selected.extend(hard_rows)
 
@@ -1208,6 +1260,7 @@ def choose_items(
             selected_ids,
             topics,
             difficulties,
+            include_exhausted_pool,
         )
     )
     random.shuffle(selected)
@@ -1753,7 +1806,6 @@ def update_after_attempt(conn: sqlite3.Connection, payload: dict[str, Any]) -> d
         mastery = min(old_mastery + 1, 5)
         intervals = (1, 3, 7, 14, 30)
         next_due = iso(utcnow() + timedelta(days=intervals[mastery - 1]))
-        needs_review = 0 if mode == "review" or payload.get("clear_review") else row["needs_review"]
         conn.execute(
             """
             UPDATE items
@@ -1765,7 +1817,7 @@ def update_after_attempt(conn: sqlite3.Connection, payload: dict[str, Any]) -> d
                 next_due_at = ?
             WHERE id = ?
             """,
-            (mastery, int(needs_review), attempted_at, next_due, item_id),
+            (mastery, 0, attempted_at, next_due, item_id),
         )
     else:
         next_due = iso(utcnow() + timedelta(days=1))

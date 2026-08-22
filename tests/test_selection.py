@@ -36,6 +36,19 @@ def make_conn() -> sqlite3.Connection:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id INTEGER NOT NULL,
+            domain TEXT NOT NULL,
+            mode TEXT NOT NULL,
+            selected_answer TEXT NOT NULL DEFAULT '',
+            correct INTEGER NOT NULL,
+            attempted_at TEXT NOT NULL
+        )
+        """
+    )
     return conn
 
 
@@ -45,15 +58,29 @@ def add_item(
     topic: str,
     difficulty: str = "Medium",
     seen_count: int = 0,
-) -> None:
-    conn.execute(
+    correct_count: int = 0,
+    wrong_count: int = 0,
+    needs_review: int = 0,
+) -> int:
+    cur = conn.execute(
         """
         INSERT INTO items (
-            domain, prompt, answer, topic, difficulty, seen_count
-        ) VALUES (?, ?, 'A', ?, ?, ?)
+            domain, prompt, answer, topic, difficulty, seen_count,
+            correct_count, wrong_count, needs_review
+        ) VALUES (?, ?, 'A', ?, ?, ?, ?, ?, ?)
         """,
-        (domain, f"{topic} {difficulty}", topic, difficulty, seen_count),
+        (
+            domain,
+            f"{topic} {difficulty}",
+            topic,
+            difficulty,
+            seen_count,
+            correct_count,
+            wrong_count,
+            needs_review,
+        ),
     )
+    return int(cur.lastrowid)
 
 
 class ChooseItemsTests(unittest.TestCase):
@@ -111,6 +138,90 @@ class ChooseItemsTests(unittest.TestCase):
 
         self.assertGreaterEqual(hard_count, 4)
         self.assertEqual(set(app.TOPICS["math"]), {row["topic"] for row in rows})
+
+    def test_normal_test_holds_correct_seen_items_until_pool_is_exhausted(self) -> None:
+        conn = make_conn()
+        correct_seen_id = add_item(
+            conn,
+            "math",
+            "Algebra",
+            "Hard",
+            seen_count=1,
+            correct_count=1,
+        )
+        fresh_id = add_item(conn, "math", "Advanced Math", "Medium")
+
+        rows = app.choose_items(conn, "math", 4, "test")
+        selected_ids = {row["id"] for row in rows}
+
+        self.assertEqual(selected_ids, {fresh_id})
+        self.assertNotIn(correct_seen_id, selected_ids)
+
+    def test_normal_test_reuses_seen_items_after_pool_is_exhausted(self) -> None:
+        conn = make_conn()
+        item_ids = {
+            add_item(conn, "math", "Algebra", "Medium", seen_count=1, correct_count=1),
+            add_item(conn, "math", "Advanced Math", "Hard", seen_count=1, correct_count=1),
+        }
+
+        rows = app.choose_items(conn, "math", 2, "test")
+
+        self.assertEqual({row["id"] for row in rows}, item_ids)
+
+
+class ProgressUpdateTests(unittest.TestCase):
+    def test_correct_test_attempt_clears_review_flag(self) -> None:
+        conn = make_conn()
+        item_id = add_item(
+            conn,
+            "math",
+            "Algebra",
+            seen_count=1,
+            wrong_count=1,
+            needs_review=1,
+        )
+
+        item = app.update_after_attempt(
+            conn,
+            {
+                "item_id": item_id,
+                "mode": "test",
+                "selected_answer": "A",
+                "correct": True,
+            },
+        )
+
+        self.assertFalse(item["needs_review"])
+
+    def test_migration_clears_stale_review_when_latest_attempt_is_correct(self) -> None:
+        conn = make_conn()
+        item_id = add_item(
+            conn,
+            "math",
+            "Algebra",
+            seen_count=2,
+            correct_count=1,
+            wrong_count=1,
+            needs_review=1,
+        )
+        conn.executemany(
+            """
+            INSERT INTO attempts (item_id, domain, mode, selected_answer, correct, attempted_at)
+            VALUES (?, 'math', 'test', 'A', ?, ?)
+            """,
+            [
+                (item_id, 0, "2026-01-01T00:00:00Z"),
+                (item_id, 1, "2026-01-02T00:00:00Z"),
+            ],
+        )
+
+        app.migrate_db(conn)
+
+        needs_review = conn.execute(
+            "SELECT needs_review FROM items WHERE id = ?",
+            (item_id,),
+        ).fetchone()["needs_review"]
+        self.assertEqual(needs_review, 0)
 
 
 class MediaTests(unittest.TestCase):

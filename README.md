@@ -16,7 +16,7 @@ The current feature set includes:
 
 - Local PDF import for SparkNotes vocabulary and College Board question-bank exports
 - Randomized test generation that avoids pulling questions in source PDF order
-- Fresh-first scheduling with due-review fallback and missed-question reinjection
+- Active-pool scheduling with missed-question reinjection and correct-question holdout
 - A minimum 40% Hard-question target for Math and Reading/Writing tests when Hard questions are available in the selected filters
 - Fresh topic coverage for broad Math and Reading/Writing tests
 - Source-order answer choices for imported Math and Reading/Writing questions so PDF explanations match the displayed A/B/C/D labels
@@ -457,15 +457,15 @@ IMPORT_LIMIT_VOCABULARY=20 IMPORT_LIMIT_MATH=10 IMPORT_LIMIT_ENGLISH=10 python3 
 
 ## Scheduling And Progress
 
-Tests prefer fresh material first. If a test asks for more items than remain fresh, the app adds due review items, then older seen items. Items are randomly sampled within those buckets instead of being pulled in source PDF order.
+Tests draw from the active pool first: unseen questions plus questions that were previously missed and have not yet been answered correctly. Correctly answered questions are held out of normal tests until that filtered active pool is exhausted. Items are randomly sampled within those buckets instead of being pulled in source PDF order.
 
 For imported Math and Reading/Writing questions, answer choices stay in source PDF order so the displayed A/B/C/D labels match the explanations.
 
-Missed questions stay flagged for Review Incorrect and are also randomly reinjected into future normal tests. Normal tests reserve a small slice for missed-review items when available, while still prioritizing broad coverage of fresh source material.
+Missed questions stay flagged for Review Incorrect and are also randomly reinjected into future normal tests. A later correct answer clears that review flag, including when the correction happens in a normal test.
 
-For Math and Reading/Writing, normal tests first try to include one fresh question from each selected top-level topic. If no topic filter is selected, this means all four official topics for that section. Topics that have no fresh questions left in the selected filters are skipped for this coverage pass. The sampler still reserves at least 40% of the requested test size for Hard questions when Hard is available in the selected filters, then rotates through the usual fresh-first, due-review, and seen-question buckets to fill any remaining slots.
+For Math and Reading/Writing, normal tests first try to include one fresh question from each selected top-level topic. If no topic filter is selected, this means all four official topics for that section. Topics that have no fresh questions left in the selected filters are skipped for this coverage pass. The sampler still targets at least 40% Hard questions when Hard questions are available in the active pool for the selected filters, then fills remaining slots from unseen and still-missed questions. Once that active pool is exhausted, due and older seen questions can cycle back in.
 
-Correct answers increase mastery and push the item farther into the future. Wrong answers reset mastery, mark the item for review, and make it due again soon.
+Correct answers increase mastery, clear any missed-review flag, and hold the item out until the active pool is exhausted. Wrong answers reset mastery, mark the item for review, and put it back into the active pool.
 
 Saved tests and review sessions can be resumed later from the Dashboard.
 
