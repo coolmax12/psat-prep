@@ -358,15 +358,9 @@ def content_bounds_for_band(
         if rect_overlaps_band(rect, top, bottom):
             include(rect)
 
-    for drawing in page.get_drawings():
-        rect = drawing.get("rect")
-        if rect and rect_overlaps_band(fitz.Rect(rect), top, bottom):
-            include(fitz.Rect(rect))
-
-    for image_info in page.get_images(full=True):
-        for rect in page.get_image_rects(image_info[0]):
-            if rect_overlaps_band(fitz.Rect(rect), top, bottom):
-                include(fitz.Rect(rect))
+    for rect in page_visual_rects(page):
+        if rect_overlaps_band(rect, top, bottom):
+            include(rect)
 
     if left is None or right is None:
         return 0.0, page.rect.width, bottom
@@ -410,6 +404,37 @@ def render_prompt_images(doc: fitz.Document, group: dict[str, Any], domain: str)
             image_paths.append(app.media_reference(output_path))
 
     return image_paths
+
+
+def page_image_rects(page: fitz.Page) -> list[fitz.Rect]:
+    rects: list[fitz.Rect] = []
+    for image_info in page.get_images(full=True):
+        for rect in page.get_image_rects(image_info[0]):
+            rects.append(fitz.Rect(rect))
+    return rects
+
+
+def page_visual_rects(page: fitz.Page) -> list[fitz.Rect]:
+    rects: list[fitz.Rect] = []
+    for drawing in page.get_drawings():
+        rect = drawing.get("rect")
+        if rect:
+            rects.append(fitz.Rect(rect))
+    rects.extend(page_image_rects(page))
+    return rects
+
+
+def choice_top_for_marker(
+    marker: dict[str, Any],
+    minimum_top: float,
+    visual_rects: list[fitz.Rect],
+) -> float:
+    marker_y = float(marker["bbox"].y0)
+    top = marker_y - PDF_CLIP_MARGIN
+    for rect in visual_rects:
+        if float(rect.y0) < marker_y <= float(rect.y1):
+            top = min(top, float(rect.y0) - PDF_CLIP_MARGIN)
+    return max(minimum_top, top)
 
 
 def choice_marker_lines(
@@ -456,6 +481,7 @@ def render_choice_images(
             start_y = 0.0
 
         markers = choice_marker_lines(lines, start_y, stop_y)
+        visual_rects = page_visual_rects(page)
         for index, marker in enumerate(markers):
             label_match = re.match(r"^([A-D])\.", str(marker["text"]))
             if not label_match:
@@ -469,7 +495,8 @@ def render_choice_images(
                 if index + 1 < len(markers)
                 else stop_y - PDF_CLIP_MARGIN
             )
-            top = float(marker["bbox"].y0) - PDF_CLIP_MARGIN
+            minimum_top = start_y if index == 0 else float(markers[index - 1]["bbox"].y1) + 1.0
+            top = choice_top_for_marker(marker, minimum_top, visual_rects)
             left, right = content_x_bounds_for_band(page, lines, top, next_top)
             output_path = output_dir / f"{qid}-choice-{label}.png"
             if save_pixmap(page, output_path, top, next_top, left, right):
