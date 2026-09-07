@@ -1,5 +1,44 @@
 # Changelog
 
+## 2026-09-07
+
+- Allowed students to move backward and forward through every test question without answering in sequence.
+- Added a pre-submit numbered question grid with green answered states and yellow unanswered states.
+- Allowed direct navigation from the question grid and submission with unanswered questions after confirmation.
+- Kept the running test timer visible through question navigation and answer review.
+
+## 2026-09-06
+
+- Removed `Math output error` placeholders from imported prompts, explanations, and stored source text.
+
+## 2026-08-29
+
+- Expanded PDF answer-choice image crops to include formulas positioned above their choice labels without pulling in the previous choice.
+
+## 2026-08-22
+
+- Kept corrected questions out of the normal active test pool until fresh and still-missed material is exhausted.
+- Cleared missed-review flags whenever a later answer is correct, including corrections made during normal tests.
+- Accepted equivalent fractions, decimals, alternate numeric lists, and documented answer-entry variants for typed Math responses.
+
+## 2026-08-13
+
+- Rendered Math explanations from the source PDF so formulas and diagrams remain legible when extracted text is incomplete.
+
+## 2026-08-12
+
+- Added a Windows server watchdog task that restarts the local app when it is not listening on the configured port.
+
+## 2026-08-11
+
+- Corrected answer scoring and made saved in-progress answers reliably available when a session is resumed.
+
+## 2026-08-10
+
+- Improved PDF rendering for graph-, table-, and formula-heavy questions and answer choices.
+- Added a media refresh utility for existing imports.
+- Added Windows update-and-restart automation with database backups and logs.
+
 ## 2026-08-09
 
 - Randomized normal test generation so selected questions are no longer pulled in source PDF order.

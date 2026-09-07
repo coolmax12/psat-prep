@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import unittest
 
@@ -46,6 +47,38 @@ def make_conn() -> sqlite3.Connection:
             selected_answer TEXT NOT NULL DEFAULT '',
             correct INTEGER NOT NULL,
             attempted_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE practice_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            domain TEXT NOT NULL,
+            mode TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'in_progress',
+            requested_count INTEGER NOT NULL DEFAULT 10,
+            filters_json TEXT NOT NULL DEFAULT '{}',
+            direction TEXT NOT NULL DEFAULT 'mixed',
+            score INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE practice_session_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL,
+            position INTEGER NOT NULL,
+            item_id INTEGER NOT NULL,
+            card_json TEXT NOT NULL,
+            selected_answer TEXT NOT NULL DEFAULT '',
+            correct INTEGER,
+            answered_at TEXT,
+            UNIQUE(session_id, position)
         )
         """
     )
@@ -222,6 +255,60 @@ class ProgressUpdateTests(unittest.TestCase):
             (item_id,),
         ).fetchone()["needs_review"]
         self.assertEqual(needs_review, 0)
+
+
+class SessionCompletionTests(unittest.TestCase):
+    def test_unanswered_questions_are_scored_incorrect_when_submitted(self) -> None:
+        conn = make_conn()
+        answered_id = add_item(conn, "math", "Algebra")
+        unanswered_id = add_item(conn, "math", "Advanced Math")
+        session_id = int(
+            conn.execute(
+                """
+                INSERT INTO practice_sessions (
+                    domain, mode, requested_count, created_at, updated_at
+                ) VALUES ('math', 'test', 2, ?, ?)
+                """,
+                ("2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+            ).lastrowid
+        )
+        for position, item_id in enumerate((answered_id, unanswered_id)):
+            card = {
+                "id": item_id,
+                "domain": "math",
+                "prompt": f"Question {position + 1}",
+                "answer": "A",
+                "choices": ["A", "B", "C", "D"],
+            }
+            conn.execute(
+                """
+                INSERT INTO practice_session_items (
+                    session_id, position, item_id, card_json,
+                    selected_answer, correct, answered_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    session_id,
+                    position,
+                    item_id,
+                    json.dumps(card),
+                    "A" if position == 0 else "",
+                    1 if position == 0 else None,
+                    "2026-01-01T00:01:00Z" if position == 0 else None,
+                ),
+            )
+
+        session = app.complete_session(conn, session_id)
+
+        self.assertEqual(session["status"], "completed")
+        self.assertEqual(session["score"], 1)
+        self.assertTrue(session["items"][0]["correct"])
+        self.assertFalse(session["items"][1]["correct"])
+        unanswered = conn.execute(
+            "SELECT wrong_count, needs_review FROM items WHERE id = ?",
+            (unanswered_id,),
+        ).fetchone()
+        self.assertEqual((unanswered["wrong_count"], unanswered["needs_review"]), (1, 1))
 
 
 class MediaTests(unittest.TestCase):

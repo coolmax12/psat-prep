@@ -278,7 +278,7 @@ function hasPrimaryExplanationImage(item) {
 
 function firstUnansweredIndex(session) {
   const index = session.items.findIndex((item) => !item.answered);
-  return index === -1 ? session.items.length : index;
+  return index === -1 ? Math.max(0, session.items.length - 1) : index;
 }
 
 function freshCount(stats = {}) {
@@ -756,16 +756,25 @@ async function resumeSession(sessionId) {
   state.session.requestedCount = session.requested_count || session.count || 10;
   state.index = firstUnansweredIndex(session);
   state.score = 0;
+  const showAnswerReview = session.count > 0 && session.answered_count === session.count;
   if (session.mode === "review") {
     showView("review");
-    renderQuestion("#review-panel");
+    if (showAnswerReview) {
+      renderSessionReview("#review-panel");
+    } else {
+      renderQuestion("#review-panel");
+    }
   } else {
     $("#test-title").textContent = `${domains[session.domain]} Test`;
     $("#test-subtitle").textContent = `${session.count} item${
       session.count === 1 ? "" : "s"
     } ready${filterSummary(session.domain, session.filters) ? ` / ${filterSummary(session.domain, session.filters)}` : ""}`;
     showView("test");
-    renderQuestion("#test-panel");
+    if (showAnswerReview) {
+      renderSessionReview("#test-panel");
+    } else {
+      renderQuestion("#test-panel");
+    }
   }
 }
 
@@ -796,13 +805,96 @@ async function completeCurrentSession(panelSelector) {
   }
   stopSessionTimer();
   panel.innerHTML = `<div class="empty-state">Scoring test...</div>`;
-  const session = anchorSessionTimer(await api("/api/session/complete", {
-    method: "POST",
-    body: JSON.stringify({ session_id: state.session.session_id }),
-  }));
-  state.session = session;
-  renderResults(panelSelector);
-  await loadAll();
+  try {
+    const session = anchorSessionTimer(await api("/api/session/complete", {
+      method: "POST",
+      body: JSON.stringify({ session_id: state.session.session_id }),
+    }));
+    state.session = session;
+    renderResults(panelSelector);
+    await loadAll();
+  } catch (error) {
+    toast(error.message);
+    renderSessionReview(panelSelector);
+  }
+}
+
+function renderSessionReview(panelSelector) {
+  const panel = $(panelSelector);
+  const session = state.session;
+  if (!session || !session.items || !session.items.length) {
+    renderQuestion(panelSelector);
+    return;
+  }
+
+  const answeredCount = session.items.filter(hasSelectedAnswer).length;
+  const unansweredCount = session.count - answeredCount;
+  const sessionLabel = session.mode === "review" ? "Review" : "Test";
+  panel.innerHTML = `
+    <div class="session-review-shell">
+      <div class="progress-line">
+        <span>${domains[session.domain]} / ${sessionLabel}</span>
+        <span>${answeredCount} of ${session.count} answered</span>
+      </div>
+      <div class="session-review-heading">
+        <h3>Review Answers</h3>
+        <p>${unansweredCount} unanswered</p>
+      </div>
+      <div class="status-legend" aria-label="Question status legend">
+        <span><i class="status-swatch answered" aria-hidden="true"></i>Answered</span>
+        <span><i class="status-swatch unanswered" aria-hidden="true"></i>Unanswered</span>
+      </div>
+      <div class="question-status-grid" aria-label="Question status">
+        ${session.items
+          .map((item, index) => {
+            const answered = hasSelectedAnswer(item);
+            return `
+              <button
+                class="question-status ${answered ? "answered" : "unanswered"} ${
+              index === state.index ? "current" : ""
+            }"
+                data-question-index="${index}"
+                aria-label="Question ${index + 1}, ${answered ? "answered" : "unanswered"}"
+                ${index === state.index ? 'aria-current="true"' : ""}
+              >${index + 1}</button>
+            `;
+          })
+          .join("")}
+      </div>
+      <div class="actions question-actions">
+        <button id="review-back" class="secondary">Back to Question ${state.index + 1}</button>
+        <button id="submit-session">Submit ${sessionLabel}</button>
+        <div class="session-timing">
+          <span>Elapsed</span>
+          <b data-session-elapsed>${formatDuration(sessionElapsedSeconds(session))}</b>
+        </div>
+      </div>
+    </div>
+  `;
+  startSessionTimer();
+
+  $$("[data-question-index]", panel).forEach((button) => {
+    button.addEventListener("click", () => {
+      if (state.answerSaving) return;
+      state.index = Number(button.dataset.questionIndex);
+      renderQuestion(panelSelector);
+    });
+  });
+  $("#review-back", panel).addEventListener("click", () => renderQuestion(panelSelector));
+  $("#submit-session", panel).addEventListener("click", () => {
+    if (state.answerSaving) return;
+    if (
+      unansweredCount > 0 &&
+      !window.confirm(
+        `Submit with ${unansweredCount} unanswered question${
+          unansweredCount === 1 ? "" : "s"
+        }? Unanswered questions will be scored as incorrect.`
+      )
+    ) {
+      return;
+    }
+    completeCurrentSession(panelSelector);
+  });
 }
 
 function selectedAnswerHtml(item) {
@@ -972,11 +1064,6 @@ function renderQuestion(panelSelector = "#test-panel") {
     return;
   }
 
-  if (state.session && state.index >= state.session.count && state.session.count > 0) {
-    completeCurrentSession(panelSelector);
-    return;
-  }
-
   if (!item) {
     panel.innerHTML = `
       <div class="empty-state">
@@ -1037,9 +1124,8 @@ function renderQuestion(panelSelector = "#test-panel") {
         <button id="prev-question" class="secondary" ${
           state.index <= 0 ? "disabled" : ""
         }>Back</button>
-        <button id="next-question" ${hasAnswer ? "" : "disabled"}>${
-    isLastQuestion ? "Finish" : "Next"
-  }</button>
+        <button id="review-answers" class="secondary">Review</button>
+        <button id="next-question">${isLastQuestion ? "Review Answers" : "Next"}</button>
         <div class="session-timing">
           <span>Elapsed</span>
           <b data-session-elapsed>${formatDuration(sessionElapsedSeconds(state.session))}</b>
@@ -1055,7 +1141,6 @@ function renderQuestion(panelSelector = "#test-panel") {
     const syncTypedControls = () => {
       const changed = normalize(typedAnswer.value) !== normalize(item.selected_answer);
       saveButton.disabled = !typedAnswer.value.trim() || !changed;
-      $("#next-question", panel).disabled = !hasSelectedAnswer(item) || changed;
     };
     syncTypedControls();
     typedAnswer.addEventListener("input", syncTypedControls);
@@ -1077,29 +1162,48 @@ function renderQuestion(panelSelector = "#test-panel") {
   }
 
   $("#prev-question", panel).addEventListener("click", () => {
-    if (state.answerSaving) return;
     if (state.index <= 0) return;
-    state.index -= 1;
-    renderQuestion(panelSelector);
+    navigateFromQuestion(panelSelector, () => {
+      state.index -= 1;
+      renderQuestion(panelSelector);
+    });
+  });
+
+  $("#review-answers", panel).addEventListener("click", () => {
+    navigateFromQuestion(panelSelector, () => renderSessionReview(panelSelector));
   });
 
   $("#next-question", panel).addEventListener("click", () => {
-    if (state.answerSaving) return;
-    if (!hasSelectedAnswer(currentItem())) return;
-    if (state.index + 1 >= state.session.count) {
-      completeCurrentSession(panelSelector);
-    } else {
-      state.index += 1;
-      renderQuestion(panelSelector);
-    }
+    navigateFromQuestion(panelSelector, () => {
+      if (state.index + 1 >= state.session.count) {
+        renderSessionReview(panelSelector);
+      } else {
+        state.index += 1;
+        renderQuestion(panelSelector);
+      }
+    });
   });
+}
+
+function navigateFromQuestion(panelSelector, navigate) {
+  if (state.answerSaving) return;
+  const panel = $(panelSelector);
+  const item = currentItem();
+  const typedAnswer = $("#typed-answer", panel);
+  const changed =
+    typedAnswer && normalize(typedAnswer.value) !== normalize(item && item.selected_answer);
+  if (changed && typedAnswer.value.trim()) {
+    answerQuestion(typedAnswer.value, panelSelector, navigate);
+    return;
+  }
+  navigate();
 }
 
 function normalize(value) {
   return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-async function answerQuestion(selected, panelSelector) {
+async function answerQuestion(selected, panelSelector, afterSave = null) {
   if (state.answerSaving) return;
   const item = currentItem();
   if (!item) return;
@@ -1110,6 +1214,7 @@ async function answerQuestion(selected, panelSelector) {
   const choices = item.choices || [];
   const prevButton = $("#prev-question", panel);
   const nextButton = $("#next-question", panel);
+  const reviewButton = $("#review-answers", panel);
 
   state.answerSaving = true;
   $$(".choice", panel).forEach((button, index) => {
@@ -1119,6 +1224,7 @@ async function answerQuestion(selected, panelSelector) {
     button.classList.toggle("selected", isSelected);
   });
   if (prevButton) prevButton.disabled = true;
+  if (reviewButton) reviewButton.disabled = true;
   if (nextButton) {
     nextButton.disabled = true;
     nextButton.dataset.previousLabel = nextButton.textContent;
@@ -1141,7 +1247,11 @@ async function answerQuestion(selected, panelSelector) {
     saved.filters = filters;
     saved.requestedCount = requestedCount;
     state.session = saved;
-    renderQuestion(panelSelector);
+    if (afterSave) {
+      afterSave();
+    } else {
+      renderQuestion(panelSelector);
+    }
   } catch (error) {
     toast(error.message);
     renderQuestion(panelSelector);

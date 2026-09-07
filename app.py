@@ -1596,9 +1596,6 @@ def complete_session(conn: sqlite3.Connection, session_id: int) -> dict[str, Any
         """,
         (session_id,),
     ).fetchall()
-    if any(row["answered_at"] is None for row in rows):
-        raise ValueError("Answer every question before finishing the test.")
-
     score = 0
     for row in rows:
         correct = bool(row["correct"])

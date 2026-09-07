@@ -8,7 +8,8 @@ The app helps students practice with:
 - Math practice by topic and difficulty
 - Reading and Writing practice by topic and difficulty
 - Review of missed questions
-- Saved in-progress tests with editable answers and sticky Back/Next navigation
+- Saved in-progress tests with editable answers and unrestricted Back/Next navigation
+- A pre-submit question grid that identifies answered and unanswered questions
 - Completed test history with full result review, total time, and average time per question
 - Progress tracking, reset controls, answers, explanations, and source tracing
 
@@ -20,9 +21,13 @@ The current feature set includes:
 - A minimum 40% Hard-question target for Math and Reading/Writing tests when Hard questions are available in the selected filters
 - Fresh topic coverage for broad Math and Reading/Writing tests
 - Source-order answer choices for imported Math and Reading/Writing questions so PDF explanations match the displayed A/B/C/D labels
+- PDF-rendered prompts, answer choices, and Math explanations that preserve graphs, tables, diagrams, and formulas
+- Typed Math answer matching for equivalent fractions, decimals, and alternate accepted numeric forms
+- Import cleanup for PDF math-rendering error placeholders
 - A live sticky in-test stopwatch next to the navigation buttons, plus completed-test timing summaries
 - Vocabulary flashcards with word-to-definition, definition-to-word, and mixed modes
 - Persistent local SQLite storage for questions, attempts, progress, saved sessions, and history
+- Optional Windows hourly updates and a server watchdog for unattended local use
 
 See `CHANGELOG.md` for a short summary of recent changes.
 
@@ -32,7 +37,7 @@ This repository is meant to share the application code and importer. Do not publ
 
 By default, `.gitignore` excludes:
 
-- `data/`, including the SQLite database and generated prompt images
+- `data/`, including the SQLite database and generated question media
 - `sources/**/*.pdf`, including source PDFs
 - Python caches, virtual environments, and local environment files
 
@@ -447,13 +452,14 @@ IMPORT_LIMIT_VOCABULARY=20 IMPORT_LIMIT_MATH=10 IMPORT_LIMIT_ENGLISH=10 python3 
 2. Pick Vocabulary, Math, or Reading and Writing.
 3. For Math and Reading/Writing, choose one or more topics and difficulties.
 4. Choose a test size: 10, 20, or 30 questions.
-5. Answer each question, using the sticky Back and Next controls to revisit reached questions and change answers before finishing.
+5. Use the sticky Back and Next controls to move through every question in any order, including skipping questions and changing saved answers.
 6. Watch elapsed test time in the sticky bottom action row while practicing.
-7. Complete the test before seeing score, total time, average time per question, correct answers, selected wrong answers, and explanations.
-8. Review missed questions from Review Incorrect.
-9. Use History to revisit completed tests and all questions in each test, right or wrong.
-10. Use Vocabulary Flashcards in word-to-definition, definition-to-word, or mixed mode.
-11. Use Settings to reset progress counters for one section without deleting questions, sources, or completed test history.
+7. Open Review Answers to see answered questions in green and unanswered questions in yellow, then select any question number to revisit it.
+8. Submit from Review Answers when ready. Unanswered questions are scored as incorrect.
+9. Review missed questions from Review Incorrect.
+10. Use History to revisit completed tests and all questions in each test, right or wrong.
+11. Use Vocabulary Flashcards in word-to-definition, definition-to-word, or mixed mode.
+12. Use Settings to reset progress counters for one section without deleting questions, sources, or completed test history.
 
 ## Scheduling And Progress
 
