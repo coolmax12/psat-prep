@@ -3,6 +3,35 @@ import unittest
 from scripts import import_sources
 
 
+class ExtractedTextCleanupTests(unittest.TestCase):
+    def test_removes_math_output_error_markers_and_repairs_punctuation(self) -> None:
+        text = import_sources.compact_text(
+            [
+                "The area is Math output error, where",
+                "MATH OUTPUT ERROR is the length.",
+            ]
+        )
+
+        self.assertEqual(text, "The area is, where is the length.")
+
+    def test_removes_marker_split_across_lines(self) -> None:
+        text = import_sources.remove_pdf_error_markers(
+            "The formula has a Math output\nerror placeholder."
+        )
+
+        self.assertEqual(text, "The formula has a  placeholder.")
+
+    def test_preserves_legitimate_error_language(self) -> None:
+        text = import_sources.clean_line(
+            "Choice B may result from conceptual or calculation errors."
+        )
+
+        self.assertEqual(
+            text,
+            "Choice B may result from conceptual or calculation errors.",
+        )
+
+
 class ChoiceCropTests(unittest.TestCase):
     def test_choice_top_expands_for_formula_image_above_label(self) -> None:
         marker = {"bbox": import_sources.fitz.Rect(18.03, 232.03, 28.50, 241.32)}

@@ -54,6 +54,7 @@ VOCAB_TRANSLATION = str.maketrans(
 PDF_RENDER_SCALE = float(os.environ.get("IMPORT_RENDER_SCALE", "1.8"))
 PDF_CLIP_MARGIN = 6.0
 PDF_MIN_CLIP_HEIGHT = 12.0
+MATH_OUTPUT_ERROR_RE = re.compile(r"\bMath\s+output\s+error\b", re.IGNORECASE)
 
 
 def import_limit(name: str) -> int | None:
@@ -67,16 +68,22 @@ def import_limit(name: str) -> int | None:
     return max(0, limit)
 
 
+def remove_pdf_error_markers(text: str) -> str:
+    cleaned = MATH_OUTPUT_ERROR_RE.sub("", text)
+    return re.sub(r"\s+([,.;:!?])", r"\1", cleaned)
+
+
 def clean_line(line: str) -> str:
-    return re.sub(r"\s+", " ", line).strip()
+    return re.sub(r"\s+", " ", remove_pdf_error_markers(line)).strip()
 
 
 def page_lines(page: fitz.Page) -> list[str]:
-    return [clean_line(line) for line in (page.get_text("text") or "").splitlines() if clean_line(line)]
+    text = remove_pdf_error_markers(page.get_text("text") or "")
+    return [clean_line(line) for line in text.splitlines() if clean_line(line)]
 
 
 def compact_text(lines: list[str]) -> str:
-    return re.sub(r"\s+", " ", " ".join(lines)).strip()
+    return clean_line(" ".join(lines))
 
 
 def create_source(conn: Any, title: str, domain: str, pdf_path: Path) -> int:
@@ -127,6 +134,7 @@ def group_question_pages(doc: fitz.Document) -> list[dict[str, Any]]:
     for page_index, page in enumerate(doc):
         text = page.get_text("text") or ""
         qid = detect_qid(text)
+        cleaned_text = remove_pdf_error_markers(text)
         if qid:
             if current:
                 groups.append(current)
@@ -136,8 +144,12 @@ def group_question_pages(doc: fitz.Document) -> list[dict[str, Any]]:
                 {
                     "page_index": page_index,
                     "page_number": page_index + 1,
-                    "text": text,
-                    "lines": [clean_line(line) for line in text.splitlines() if clean_line(line)],
+                    "text": cleaned_text,
+                    "lines": [
+                        clean_line(line)
+                        for line in cleaned_text.splitlines()
+                        if clean_line(line)
+                    ],
                 }
             )
     if current:
