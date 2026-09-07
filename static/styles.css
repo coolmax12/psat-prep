@@ -344,6 +344,31 @@ p {
   margin-left: auto;
 }
 
+.question-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.flag-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.flag-button:hover,
+.flag-button.active {
+  border-color: var(--accent);
+  background: #fff0e8;
+  color: #873b20;
+}
+
 .session-review-shell {
   display: grid;
   gap: 18px;
@@ -379,6 +404,13 @@ p {
   border-radius: 3px;
 }
 
+.flag-legend-symbol {
+  color: var(--accent);
+  font-size: 1.1rem;
+  font-style: normal;
+  line-height: 1;
+}
+
 .status-swatch.answered,
 .question-status.answered {
   border-color: var(--primary);
@@ -400,11 +432,26 @@ p {
 }
 
 .question-status {
+  position: relative;
   width: 48px;
   min-height: 48px;
   padding: 0;
   border-radius: 5px;
   font-variant-numeric: tabular-nums;
+}
+
+.question-status.flagged {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.question-flag-marker {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-style: normal;
+  line-height: 1;
 }
 
 .question-status:hover {
@@ -762,6 +809,30 @@ p {
 
 .result-miss {
   color: var(--danger);
+}
+
+.result-question-status,
+.result-flag {
+  display: inline-flex;
+  align-items: center;
+}
+
+.result-question-status {
+  flex-wrap: wrap;
+  justify-content: end;
+  gap: 10px;
+  font-weight: 800;
+}
+
+.result-flag {
+  gap: 5px;
+  color: #873b20;
+}
+
+.result-flag i {
+  color: var(--accent);
+  font-style: normal;
+  line-height: 1;
 }
 
 .typed-answer {

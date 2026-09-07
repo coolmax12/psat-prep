@@ -6,6 +6,9 @@
 - Added a pre-submit numbered question grid with green answered states and yellow unanswered states.
 - Allowed direct navigation from the question grid and submission with unanswered questions after confirmation.
 - Kept the running test timer visible through question navigation and answer review.
+- Added persistent per-question review flags that can be set independently of answers.
+- Marked flagged questions on the answer-review grid while keeping every numbered square directly navigable.
+- Preserved flags in completed tests and displayed flagged-question performance in results and History.
 
 ## 2026-09-06
 

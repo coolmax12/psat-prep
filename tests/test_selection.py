@@ -5,7 +5,7 @@ import unittest
 import app
 
 
-def make_conn() -> sqlite3.Connection:
+def make_conn(include_flagged: bool = True) -> sqlite3.Connection:
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     conn.execute(
@@ -67,8 +67,9 @@ def make_conn() -> sqlite3.Connection:
         )
         """
     )
+    flagged_column = "flagged INTEGER NOT NULL DEFAULT 0," if include_flagged else ""
     conn.execute(
-        """
+        f"""
         CREATE TABLE practice_session_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id INTEGER NOT NULL,
@@ -78,6 +79,7 @@ def make_conn() -> sqlite3.Connection:
             selected_answer TEXT NOT NULL DEFAULT '',
             correct INTEGER,
             answered_at TEXT,
+            {flagged_column}
             UNIQUE(session_id, position)
         )
         """
@@ -284,8 +286,8 @@ class SessionCompletionTests(unittest.TestCase):
                 """
                 INSERT INTO practice_session_items (
                     session_id, position, item_id, card_json,
-                    selected_answer, correct, answered_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    selected_answer, correct, answered_at, flagged
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
@@ -295,6 +297,7 @@ class SessionCompletionTests(unittest.TestCase):
                     "A" if position == 0 else "",
                     1 if position == 0 else None,
                     "2026-01-01T00:01:00Z" if position == 0 else None,
+                    int(position == 1),
                 ),
             )
 
@@ -304,11 +307,111 @@ class SessionCompletionTests(unittest.TestCase):
         self.assertEqual(session["score"], 1)
         self.assertTrue(session["items"][0]["correct"])
         self.assertFalse(session["items"][1]["correct"])
+        self.assertTrue(session["items"][1]["flagged"])
+        history_session = app.session_response(conn, session_id)
+        self.assertTrue(history_session["items"][1]["flagged"])
         unanswered = conn.execute(
             "SELECT wrong_count, needs_review FROM items WHERE id = ?",
             (unanswered_id,),
         ).fetchone()
         self.assertEqual((unanswered["wrong_count"], unanswered["needs_review"]), (1, 1))
+
+
+class SessionFlagTests(unittest.TestCase):
+    def test_flag_is_saved_independently_of_answer(self) -> None:
+        conn = make_conn()
+        item_id = add_item(conn, "math", "Algebra")
+        session_id = int(
+            conn.execute(
+                """
+                INSERT INTO practice_sessions (
+                    domain, mode, requested_count, created_at, updated_at
+                ) VALUES ('math', 'test', 1, ?, ?)
+                """,
+                ("2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+            ).lastrowid
+        )
+        card = {
+            "id": item_id,
+            "domain": "math",
+            "prompt": "Question 1",
+            "answer": "A",
+            "choices": ["A", "B", "C", "D"],
+        }
+        conn.execute(
+            """
+            INSERT INTO practice_session_items (
+                session_id, position, item_id, card_json
+            ) VALUES (?, 0, ?, ?)
+            """,
+            (session_id, item_id, json.dumps(card)),
+        )
+
+        flagged = app.set_session_flag(
+            conn,
+            {"session_id": session_id, "position": 0, "flagged": True},
+        )
+
+        self.assertTrue(flagged["items"][0]["flagged"])
+        self.assertFalse(flagged["items"][0]["answered"])
+        unflagged = app.set_session_flag(
+            conn,
+            {"session_id": session_id, "position": 0, "flagged": False},
+        )
+        self.assertFalse(unflagged["items"][0]["flagged"])
+
+    def test_migration_adds_flag_to_existing_session_items(self) -> None:
+        conn = make_conn(include_flagged=False)
+
+        app.migrate_db(conn)
+
+        self.assertIn("flagged", app.table_columns(conn, "practice_session_items"))
+
+    def test_flag_cannot_change_after_submission(self) -> None:
+        conn = make_conn()
+        item_id = add_item(conn, "math", "Algebra")
+        session_id = int(
+            conn.execute(
+                """
+                INSERT INTO practice_sessions (
+                    domain, mode, status, requested_count,
+                    created_at, updated_at, completed_at
+                ) VALUES ('math', 'test', 'completed', 1, ?, ?, ?)
+                """,
+                (
+                    "2026-01-01T00:00:00Z",
+                    "2026-01-01T00:05:00Z",
+                    "2026-01-01T00:05:00Z",
+                ),
+            ).lastrowid
+        )
+        card = {
+            "id": item_id,
+            "domain": "math",
+            "prompt": "Question 1",
+            "answer": "A",
+            "choices": ["A", "B", "C", "D"],
+        }
+        conn.execute(
+            """
+            INSERT INTO practice_session_items (
+                session_id, position, item_id, card_json, flagged
+            ) VALUES (?, 0, ?, ?, 1)
+            """,
+            (session_id, item_id, json.dumps(card)),
+        )
+
+        with self.assertRaisesRegex(ValueError, "already complete"):
+            app.set_session_flag(
+                conn,
+                {"session_id": session_id, "position": 0, "flagged": False},
+            )
+
+        stored = conn.execute(
+            "SELECT flagged FROM practice_session_items WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+        self.assertEqual(stored["flagged"], 1)
 
 
 class MediaTests(unittest.TestCase):

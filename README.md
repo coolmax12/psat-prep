@@ -9,8 +9,9 @@ The app helps students practice with:
 - Reading and Writing practice by topic and difficulty
 - Review of missed questions
 - Saved in-progress tests with editable answers and unrestricted Back/Next navigation
-- A pre-submit question grid that identifies answered and unanswered questions
-- Completed test history with full result review, total time, and average time per question
+- Persistent per-question review flags that are independent of answer status
+- A clickable pre-submit question grid that identifies answered, unanswered, and flagged questions
+- Completed test history with full result review, flagged-question performance, total time, and average time per question
 - Progress tracking, reset controls, answers, explanations, and source tracing
 
 The current feature set includes:
@@ -454,12 +455,13 @@ IMPORT_LIMIT_VOCABULARY=20 IMPORT_LIMIT_MATH=10 IMPORT_LIMIT_ENGLISH=10 python3 
 4. Choose a test size: 10, 20, or 30 questions.
 5. Use the sticky Back and Next controls to move through every question in any order, including skipping questions and changing saved answers.
 6. Watch elapsed test time in the sticky bottom action row while practicing.
-7. Open Review Answers to see answered questions in green and unanswered questions in yellow, then select any question number to revisit it.
-8. Submit from Review Answers when ready. Unanswered questions are scored as incorrect.
-9. Review missed questions from Review Incorrect.
-10. Use History to revisit completed tests and all questions in each test, right or wrong.
-11. Use Vocabulary Flashcards in word-to-definition, definition-to-word, or mixed mode.
-12. Use Settings to reset progress counters for one section without deleting questions, sources, or completed test history.
+7. Flag or unflag any question for review independently of whether it has an answer.
+8. Open Review Answers to see answered questions in green, unanswered questions in yellow, and flagged questions marked with a flag, then select any question number to revisit it.
+9. Submit from Review Answers when ready. Unanswered questions are scored as incorrect.
+10. Review missed questions from Review Incorrect.
+11. Use History to revisit completed tests, compare flagged-question performance, and review every question with its final answer and result.
+12. Use Vocabulary Flashcards in word-to-definition, definition-to-word, or mixed mode.
+13. Use Settings to reset progress counters for one section without deleting questions, sources, or completed test history.
 
 ## Scheduling And Progress
 

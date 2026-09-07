@@ -33,6 +33,7 @@ const state = {
   index: 0,
   score: 0,
   answerSaving: false,
+  flagSaving: false,
   timerId: null,
   flashFlipped: false,
   flashPass: 1,
@@ -843,20 +844,34 @@ function renderSessionReview(panelSelector) {
       <div class="status-legend" aria-label="Question status legend">
         <span><i class="status-swatch answered" aria-hidden="true"></i>Answered</span>
         <span><i class="status-swatch unanswered" aria-hidden="true"></i>Unanswered</span>
+        <span><i class="flag-legend-symbol" aria-hidden="true">&#9873;</i>Flagged</span>
       </div>
       <div class="question-status-grid" aria-label="Question status">
         ${session.items
           .map((item, index) => {
             const answered = hasSelectedAnswer(item);
+            const status = [
+              answered ? "answered" : "unanswered",
+              item.flagged ? "flagged for review" : "",
+            ]
+              .filter(Boolean)
+              .join(", ");
             return `
               <button
                 class="question-status ${answered ? "answered" : "unanswered"} ${
               index === state.index ? "current" : ""
-            }"
+            } ${item.flagged ? "flagged" : ""}"
                 data-question-index="${index}"
-                aria-label="Question ${index + 1}, ${answered ? "answered" : "unanswered"}"
+                aria-label="Question ${index + 1}, ${status}"
                 ${index === state.index ? 'aria-current="true"' : ""}
-              >${index + 1}</button>
+              >
+                <span>${index + 1}</span>
+                ${
+                  item.flagged
+                    ? '<i class="question-flag-marker" aria-hidden="true">&#9873;</i>'
+                    : ""
+                }
+              </button>
             `;
           })
           .join("")}
@@ -1006,6 +1021,9 @@ function renderResults(panelSelector) {
   const panel = $(panelSelector);
   const session = state.session;
   const wrongCount = session.items.filter((item) => !item.correct).length;
+  const flaggedItems = session.items.filter((item) => item.flagged);
+  const flaggedCorrectCount = flaggedItems.filter((item) => item.correct).length;
+  const flaggedMissedCount = flaggedItems.length - flaggedCorrectCount;
   const totalTime = formatDuration(sessionElapsedSeconds(session));
   const averageTime = formatDuration(sessionAverageSeconds(session));
   const isHistory = panelSelector === "#history-panel";
@@ -1013,9 +1031,10 @@ function renderResults(panelSelector) {
     <div class="results-shell">
       <div class="results-summary">
         <div>
-          <h3>${session.mode === "review" ? "Review Complete" : "Test Complete"}</h3>
-          <p>Score: ${session.score} of ${session.count} / ${wrongCount} missed</p>
-          <p>Time: ${totalTime} / Avg per question: ${averageTime}</p>
+           <h3>${session.mode === "review" ? "Review Complete" : "Test Complete"}</h3>
+           <p>Score: ${session.score} of ${session.count} / ${wrongCount} missed</p>
+           <p>Flagged: ${flaggedItems.length} / ${flaggedCorrectCount} correct / ${flaggedMissedCount} missed</p>
+           <p>Time: ${totalTime} / Avg per question: ${averageTime}</p>
         </div>
         <button id="results-back">${isHistory ? "Back to History" : "Dashboard"}</button>
       </div>
@@ -1026,9 +1045,16 @@ function renderResults(panelSelector) {
               <article class="result-card">
                 <div class="progress-line">
                   <span>Question ${index + 1}</span>
-                  <span class="${item.correct ? "result-ok" : "result-miss"}">${
+                  <span class="result-question-status">
+                    ${
+                      item.flagged
+                        ? '<span class="result-flag"><i aria-hidden="true">&#9873;</i>Flagged</span>'
+                        : ""
+                    }
+                    <span class="${item.correct ? "result-ok" : "result-miss"}">${
               item.correct ? "Correct" : "Incorrect"
             }</span>
+                  </span>
                 </div>
                 ${questionMeta(item)}
                 ${promptHtml(item)}
@@ -1084,7 +1110,18 @@ function renderQuestion(panelSelector = "#test-panel") {
     <div class="question-shell">
       <div class="progress-line">
         <span>${domains[item.domain]} / ${mode === "review" ? "Review" : "Test"}</span>
-        <span>${state.index + 1} of ${state.session.count}</span>
+        <div class="question-heading-actions">
+          <button
+            id="toggle-question-flag"
+            class="flag-button ${item.flagged ? "active" : ""}"
+            aria-pressed="${item.flagged ? "true" : "false"}"
+            title="${item.flagged ? "Remove review flag" : "Flag for review"}"
+          >
+            <span aria-hidden="true">&#9873;</span>
+            <span>${item.flagged ? "Flagged" : "Flag"}</span>
+          </button>
+          <span>${state.index + 1} of ${state.session.count}</span>
+        </div>
       </div>
       ${questionMeta(item)}
       ${promptHtml(item)}
@@ -1134,6 +1171,10 @@ function renderQuestion(panelSelector = "#test-panel") {
     </div>
   `;
   startSessionTimer();
+
+  $("#toggle-question-flag", panel).addEventListener("click", () => {
+    toggleQuestionFlag(panelSelector);
+  });
 
   if (item.self_grade) {
     const typedAnswer = $("#typed-answer", panel);
@@ -1186,7 +1227,7 @@ function renderQuestion(panelSelector = "#test-panel") {
 }
 
 function navigateFromQuestion(panelSelector, navigate) {
-  if (state.answerSaving) return;
+  if (state.answerSaving || state.flagSaving) return;
   const panel = $(panelSelector);
   const item = currentItem();
   const typedAnswer = $("#typed-answer", panel);
@@ -1204,7 +1245,7 @@ function normalize(value) {
 }
 
 async function answerQuestion(selected, panelSelector, afterSave = null) {
-  if (state.answerSaving) return;
+  if (state.answerSaving || state.flagSaving) return;
   const item = currentItem();
   if (!item) return;
   const panel = $(panelSelector);
@@ -1215,6 +1256,7 @@ async function answerQuestion(selected, panelSelector, afterSave = null) {
   const prevButton = $("#prev-question", panel);
   const nextButton = $("#next-question", panel);
   const reviewButton = $("#review-answers", panel);
+  const flagButton = $("#toggle-question-flag", panel);
 
   state.answerSaving = true;
   $$(".choice", panel).forEach((button, index) => {
@@ -1225,6 +1267,7 @@ async function answerQuestion(selected, panelSelector, afterSave = null) {
   });
   if (prevButton) prevButton.disabled = true;
   if (reviewButton) reviewButton.disabled = true;
+  if (flagButton) flagButton.disabled = true;
   if (nextButton) {
     nextButton.disabled = true;
     nextButton.dataset.previousLabel = nextButton.textContent;
@@ -1257,6 +1300,47 @@ async function answerQuestion(selected, panelSelector, afterSave = null) {
     renderQuestion(panelSelector);
   } finally {
     state.answerSaving = false;
+  }
+}
+
+async function toggleQuestionFlag(panelSelector) {
+  if (state.answerSaving || state.flagSaving) return;
+  const item = currentItem();
+  if (!item) return;
+  const panel = $(panelSelector);
+  const button = $("#toggle-question-flag", panel);
+  const filters = state.session.filters;
+  const requestedCount = state.session.requestedCount;
+  state.flagSaving = true;
+  if (button) {
+    button.disabled = true;
+    button.lastElementChild.textContent = "Saving...";
+  }
+
+  try {
+    const saved = anchorSessionTimer(await api("/api/session/flag", {
+      method: "POST",
+      body: JSON.stringify({
+        session_id: state.session.session_id,
+        position: item.position,
+        flagged: !item.flagged,
+      }),
+    }));
+    saved.filters = filters;
+    saved.requestedCount = requestedCount;
+    state.session = saved;
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    state.flagSaving = false;
+    if (button) {
+      const flagged = Boolean(currentItem() && currentItem().flagged);
+      button.disabled = false;
+      button.classList.toggle("active", flagged);
+      button.setAttribute("aria-pressed", flagged ? "true" : "false");
+      button.title = flagged ? "Remove review flag" : "Flag for review";
+      button.lastElementChild.textContent = flagged ? "Flagged" : "Flag";
+    }
   }
 }
 

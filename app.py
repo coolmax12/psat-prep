@@ -213,6 +213,7 @@ def migrate_db(conn: sqlite3.Connection) -> None:
             selected_answer TEXT NOT NULL DEFAULT '',
             correct INTEGER,
             answered_at TEXT,
+            flagged INTEGER NOT NULL DEFAULT 0,
             UNIQUE(session_id, position)
         );
 
@@ -223,6 +224,12 @@ def migrate_db(conn: sqlite3.Connection) -> None:
             ON practice_session_items(session_id, position);
         """
     )
+    session_item_columns = table_columns(conn, "practice_session_items")
+    if "flagged" not in session_item_columns:
+        conn.execute(
+            "ALTER TABLE practice_session_items "
+            "ADD COLUMN flagged INTEGER NOT NULL DEFAULT 0"
+        )
     conn.execute(
         """
         UPDATE items
@@ -1476,6 +1483,7 @@ def session_response(
         card["session_item_id"] = item_row["id"]
         card["selected_answer"] = item_row["selected_answer"]
         card["answered"] = bool(item_row["answered_at"])
+        card["flagged"] = bool(item_row["flagged"])
         if include_results:
             card["correct"] = bool(item_row["correct"])
         items.append(public_card(card, include_results))
@@ -1574,6 +1582,44 @@ def save_session_answer(conn: sqlite3.Connection, payload: dict[str, Any]) -> di
     conn.execute(
         "UPDATE practice_sessions SET updated_at = ? WHERE id = ?",
         (answered_at, session_id),
+    )
+    return session_response(conn, session_id)
+
+
+def set_session_flag(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, Any]:
+    session_id = int(payload.get("session_id") or 0)
+    position = int(payload.get("position") or 0)
+    flagged = payload.get("flagged")
+    if not isinstance(flagged, bool):
+        raise ValueError("Flagged status must be true or false.")
+
+    session = conn.execute(
+        "SELECT * FROM practice_sessions WHERE id = ?", (session_id,)
+    ).fetchone()
+    if session is None:
+        raise ValueError("Practice session was not found.")
+    if session["status"] != "in_progress":
+        raise ValueError("This practice session is already complete.")
+
+    item_row = conn.execute(
+        """
+        SELECT id
+        FROM practice_session_items
+        WHERE session_id = ? AND position = ?
+        """,
+        (session_id, position),
+    ).fetchone()
+    if item_row is None:
+        raise ValueError("Practice question was not found.")
+
+    updated_at = iso()
+    conn.execute(
+        "UPDATE practice_session_items SET flagged = ? WHERE id = ?",
+        (int(flagged), item_row["id"]),
+    )
+    conn.execute(
+        "UPDATE practice_sessions SET updated_at = ? WHERE id = ?",
+        (updated_at, session_id),
     )
     return session_response(conn, session_id)
 
@@ -2106,6 +2152,8 @@ class PrepHandler(BaseHTTPRequestHandler):
                 self.send_json(create_session(conn, payload))
             elif path == "/api/session/answer":
                 self.send_json(save_session_answer(conn, payload))
+            elif path == "/api/session/flag":
+                self.send_json(set_session_flag(conn, payload))
             elif path == "/api/session/complete":
                 self.send_json(complete_session(conn, int(payload.get("session_id") or 0)))
             elif path == "/api/attempts":
