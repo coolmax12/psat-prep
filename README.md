@@ -166,10 +166,10 @@ curl -L "https://img.sparknotes.com/content/testprep/pdf/sat.vocab.pdf" \
   -o sources/vocabulary/SAT_VOCAB.pdf
 ```
 
-If `curl` is not available, open the URL in a browser and save the file exactly as:
+If `curl` is not available, open the URL in a browser and save the PDF anywhere inside:
 
 ```text
-sources/vocabulary/SAT_VOCAB.pdf
+sources/vocabulary/
 ```
 
 ### 6. Export The College Board Question PDFs
@@ -185,7 +185,7 @@ Create the Math PDF:
 1. Choose `PSAT/NMSQT and PSAT 10`.
 2. Filter to Math questions.
 3. Export or download the filtered question bank as a PDF.
-4. Save the file exactly as `sources/math/math_full_bank.pdf`.
+4. Save the PDF in `sources/math/` using any filename.
 
 Create the Reading and Writing PDF:
 
@@ -193,21 +193,21 @@ Create the Reading and Writing PDF:
 2. Choose `PSAT/NMSQT and PSAT 10`.
 3. Filter to Reading and Writing questions.
 4. Export or download the filtered question bank as a PDF.
-5. Save the file exactly as `sources/reading and writing/reading_and_writing_full_bank.pdf`.
+5. Save the PDF in `sources/reading and writing/` using any filename.
 
-Keep Math and Reading/Writing separate. The importer expects two different PDFs.
+Keep Math and Reading/Writing separate, with exactly one PDF in each section folder.
 
 ### 7. Verify The Source Files
 
 Run:
 
 ```bash
-ls -lh sources/vocabulary/SAT_VOCAB.pdf
-ls -lh sources/math/math_full_bank.pdf
-ls -lh "sources/reading and writing/reading_and_writing_full_bank.pdf"
+ls -lh sources/vocabulary/*.pdf
+ls -lh sources/math/*.pdf
+ls -lh "sources/reading and writing"/*.pdf
 ```
 
-All three commands should show a PDF file. If any command says `No such file or directory`, fix the file name or folder path before importing.
+Each command should show exactly one PDF file. The filenames do not matter.
 
 ### 8. Import The Question Bank
 
@@ -222,7 +222,6 @@ This creates `data/psat_prep.sqlite3` and generated question images under `data/
 Typical successful output looks like:
 
 ```text
-vocabulary: imported 991, skipped 0
 math: imported 1741, skipped 0
 reading/writing: imported 1838, skipped 0
 ```
@@ -289,12 +288,12 @@ python3 -m pip install -r requirements.txt
 
 `Missing source files`
 
-Check that the three PDF paths exactly match:
+Check that each selected section folder contains exactly one PDF:
 
 ```text
-sources/vocabulary/SAT_VOCAB.pdf
-sources/math/math_full_bank.pdf
-sources/reading and writing/reading_and_writing_full_bank.pdf
+sources/vocabulary/
+sources/math/
+sources/reading and writing/
 ```
 
 Port `8080` is already in use:
@@ -312,10 +311,10 @@ Cannot reach the app from another device:
 Want to rebuild from scratch:
 
 ```bash
-python3 scripts/import_sources.py
+python3 scripts/import_sources.py --sections vocabulary math english
 ```
 
-That command resets the imported question bank and progress for the configured database.
+That command asks for confirmation, then resets every section in the configured database.
 
 ## Keep Running On Windows
 
@@ -387,21 +386,21 @@ sudo systemctl status psat-prep
 
 ## Add Source PDFs
 
-Use source files that you have permission to use locally. The importer currently expects these local file paths:
+Use source files that you have permission to use locally. Keep exactly one PDF in each section folder:
 
 ```text
-sources/vocabulary/SAT_VOCAB.pdf
-sources/math/math_full_bank.pdf
-sources/reading and writing/reading_and_writing_full_bank.pdf
+sources/vocabulary/
+sources/math/
+sources/reading and writing/
 ```
 
 Recommended source workflow:
 
-1. Vocabulary: download the SparkNotes SAT vocabulary PDF from `https://img.sparknotes.com/content/testprep/pdf/sat.vocab.pdf` and save it as `sources/vocabulary/SAT_VOCAB.pdf`.
-2. Math questions: open the College Board SAT Suite Educator Question Bank at `https://satsuiteeducatorquestionbank.collegeboard.org/digital/search`, choose `PSAT/NMSQT and PSAT 10`, filter to Math, export the results as a PDF, and save it as `sources/math/math_full_bank.pdf`.
-3. Reading and Writing questions: use the same College Board question bank, choose `PSAT/NMSQT and PSAT 10`, filter to Reading and Writing, export the results as a separate PDF, and save it as `sources/reading and writing/reading_and_writing_full_bank.pdf`.
+1. Vocabulary: download the SparkNotes SAT vocabulary PDF from `https://img.sparknotes.com/content/testprep/pdf/sat.vocab.pdf` and place it in `sources/vocabulary/`.
+2. Math questions: export the desired Math question bank from the College Board SAT Suite Educator Question Bank and place the PDF in `sources/math/`.
+3. Reading and Writing questions: export Reading and Writing as a separate PDF and place it in `sources/reading and writing/`.
 
-Keep Math and Reading/Writing as separate PDFs. The importer uses the file path and the PDF's domain/topic metadata to build the right question banks.
+Keep exactly one PDF in each section folder. The filename does not matter. The importer stops with an error instead of guessing if a selected folder contains no PDF or multiple PDFs.
 
 ## Build The Question Bank
 
@@ -411,16 +410,24 @@ After the PDFs are in place, run:
 python3 scripts/import_sources.py
 ```
 
-This command is destructive for the configured database. It clears:
+By default, this replaces Math and Reading/Writing while preserving Vocabulary. The importer asks for confirmation before changing the database. Select sections explicitly when needed:
+
+```bash
+python3 scripts/import_sources.py --sections math
+python3 scripts/import_sources.py --sections english
+python3 scripts/import_sources.py --sections vocabulary
+```
+
+Use `english` for Reading and Writing. For unattended runs, add `--yes` only after verifying the selected sections. For each selected section, the importer clears:
 
 - sources
 - source pages
 - items
 - attempts
 - saved practice sessions
-- generated question images
+- generated question images for that section
 
-Then it imports vocabulary, Math, and Reading/Writing questions from `sources/`.
+It then imports only the selected sections from their corresponding `sources/` folders. Unselected sections—including their questions, progress, attempts, wrong-answer/review state, test history, sources, pages, and generated media—remain unchanged.
 
 The importer stores:
 

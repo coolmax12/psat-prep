@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
@@ -33,10 +34,10 @@ except Exception as exc:  # pragma: no cover - user-facing setup path.
     ) from exc
 
 
-SOURCE_FILES = {
-    "vocabulary": ROOT / "sources" / "vocabulary" / "SAT_VOCAB.pdf",
-    "math": ROOT / "sources" / "math" / "math_full_bank.pdf",
-    "english": ROOT / "sources" / "reading and writing" / "reading_and_writing_full_bank.pdf",
+SOURCE_DIRECTORIES = {
+    "vocabulary": ROOT / "sources" / "vocabulary",
+    "math": ROOT / "sources" / "math",
+    "english": ROOT / "sources" / "reading and writing",
 }
 
 DIFFICULTIES = set(app.DIFFICULTIES)
@@ -68,6 +69,31 @@ def import_limit(name: str) -> int | None:
     return max(0, limit)
 
 
+def resolve_source_file(domain: str) -> Path:
+    source_dir = SOURCE_DIRECTORIES[domain]
+    candidates = (
+        sorted(
+            (
+                path
+                for path in source_dir.iterdir()
+                if path.is_file() and path.suffix.lower() == ".pdf"
+            ),
+            key=lambda path: path.name.lower(),
+        )
+        if source_dir.exists()
+        else []
+    )
+    if not candidates:
+        raise ValueError(f"No PDF source found for {domain} in {source_dir}")
+    if len(candidates) > 1:
+        names = ", ".join(path.name for path in candidates)
+        raise ValueError(
+            f"Multiple PDF sources found for {domain} in {source_dir}: {names}. "
+            "Keep exactly one PDF in each section folder."
+        )
+    return candidates[0]
+
+
 def remove_pdf_error_markers(text: str) -> str:
     cleaned = MATH_OUTPUT_ERROR_RE.sub("", text)
     return re.sub(r"\s+([,.;:!?])", r"\1", cleaned)
@@ -97,32 +123,61 @@ def create_source(conn: Any, title: str, domain: str, pdf_path: Path) -> int:
     return int(cur.lastrowid)
 
 
-def flush_database(conn: Any) -> None:
-    conn.execute("PRAGMA foreign_keys = OFF")
-    for table in (
-        "practice_session_items",
-        "practice_sessions",
-        "attempts",
-        "items",
-        "source_pages",
-        "sources",
-    ):
-        conn.execute(f"DELETE FROM {table}")
+def flush_sections(conn: Any, domains: set[str]) -> None:
+    """Remove imported data and practice history for only the requested domains."""
+    invalid = domains.difference(app.DOMAINS)
+    if invalid:
+        raise ValueError(f"Unknown practice areas: {', '.join(sorted(invalid))}")
+    if not domains:
+        return
+
+    placeholders = ", ".join("?" for _ in domains)
+    parameters = tuple(sorted(domains))
+    source_ids = [
+        int(row[0])
+        for row in conn.execute(
+            f"SELECT id FROM sources WHERE domain IN ({placeholders})", parameters
+        )
+    ]
+
+    # Delete explicit dependents as well as parent records so this remains safe for
+    # databases created before foreign-key enforcement was enabled.
     conn.execute(
-        "DELETE FROM sqlite_sequence WHERE name IN (?, ?, ?, ?, ?, ?)",
-        (
-            "practice_session_items",
-            "practice_sessions",
-            "attempts",
-            "items",
-            "source_pages",
-            "sources",
-        ),
+        f"""
+        DELETE FROM practice_session_items
+        WHERE session_id IN (
+            SELECT id FROM practice_sessions WHERE domain IN ({placeholders})
+        )
+        OR item_id IN (SELECT id FROM items WHERE domain IN ({placeholders}))
+        """,
+        parameters + parameters,
     )
-    conn.execute("PRAGMA foreign_keys = ON")
-    shutil.rmtree(app.DB_PATH.parent / "assets", ignore_errors=True)
+    conn.execute(
+        f"DELETE FROM practice_sessions WHERE domain IN ({placeholders})", parameters
+    )
+    conn.execute(
+        f"""
+        DELETE FROM attempts
+        WHERE domain IN ({placeholders})
+           OR item_id IN (SELECT id FROM items WHERE domain IN ({placeholders}))
+        """,
+        parameters + parameters,
+    )
+    conn.execute(f"DELETE FROM items WHERE domain IN ({placeholders})", parameters)
+    conn.execute(
+        f"""
+        DELETE FROM source_pages
+        WHERE source_id IN (SELECT id FROM sources WHERE domain IN ({placeholders}))
+        """,
+        parameters,
+    )
+    conn.execute(f"DELETE FROM sources WHERE domain IN ({placeholders})", parameters)
 
-
+    assets_dir = app.DB_PATH.parent / "assets"
+    for domain in domains:
+        shutil.rmtree(assets_dir / "questions" / domain, ignore_errors=True)
+    for source_id in source_ids:
+        shutil.rmtree(assets_dir / f"source_{source_id}", ignore_errors=True)
 def detect_qid(text: str) -> str:
     match = re.search(r"Question ID:\s*([A-Za-z0-9_-]+)", text)
     return app.clean_question_identifier(match.group(1)) if match else ""
@@ -788,10 +843,63 @@ def import_vocabulary_pdf(conn: Any, pdf_path: Path, limit: int | None = None) -
     return source_id, imported, 0
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Replace selected practice sections from their source PDFs."
+    )
+    parser.add_argument(
+        "--sections",
+        nargs="+",
+        choices=app.DOMAINS,
+        default=["math", "english"],
+        help=(
+            "sections to flush and re-import (default: math english); "
+            "use 'english' for Reading and Writing"
+        ),
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="confirm the destructive section replacement without prompting",
+    )
+    return parser.parse_args()
+
+
+def confirm_flush(domains: tuple[str, ...]) -> bool:
+    labels = {
+        "vocabulary": "Vocabulary",
+        "math": "Math",
+        "english": "Reading and Writing",
+    }
+    selected = ", ".join(labels[domain] for domain in domains)
+    print(f"Selected sections: {selected}")
+    print(
+        "This will permanently remove their questions, attempts, wrong-answer and "
+        "review state, test sessions/history, source pages, and generated media "
+        "before importing the replacement PDFs."
+    )
+    if "vocabulary" not in domains:
+        print("Vocabulary cards, flashcards, attempts, and history will remain unchanged.")
+    else:
+        print("WARNING: Vocabulary was explicitly selected and will also be replaced.")
+    try:
+        answer = input("Continue? [y/N]: ").strip().lower()
+    except EOFError:
+        return False
+    return answer in {"y", "yes"}
+
+
 def main() -> None:
-    missing = [str(path) for path in SOURCE_FILES.values() if not path.exists()]
-    if missing:
-        raise SystemExit("Missing source files:\n" + "\n".join(missing))
+    args = parse_args()
+    domains = tuple(dict.fromkeys(args.sections))
+    try:
+        source_files = {domain: resolve_source_file(domain) for domain in domains}
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    if not args.yes and not confirm_flush(domains):
+        print("Import cancelled; the database was not changed.")
+        return
 
     app.init_db()
     with app.get_db() as conn:
@@ -804,53 +912,62 @@ def main() -> None:
         if limited:
             print(f"Import limits active: {limited}", flush=True)
 
-        print(f"Flushing database at {app.DB_PATH}", flush=True)
-        flush_database(conn)
-
-        print("Importing vocabulary...", flush=True)
-        vocab_source, vocab_count, vocab_skipped = import_vocabulary_pdf(
-            conn, SOURCE_FILES["vocabulary"], limits["vocabulary"]
+        print(
+            f"Flushing sections {', '.join(domains)} at {app.DB_PATH}", flush=True
         )
-        print(f"vocabulary: imported {vocab_count}, skipped {vocab_skipped}", flush=True)
+        flush_sections(conn, set(domains))
 
-        print("Importing math question bank...", flush=True)
-        math_source, math_count, math_skipped = import_question_pdf(
-            conn,
-            "math",
-            "Math Full Question Bank",
-            SOURCE_FILES["math"],
-            limits["math"],
-        )
-        print(f"math: imported {math_count}, skipped {math_skipped}", flush=True)
+        sources: dict[str, int] = {}
+        items: dict[str, int] = {}
+        skipped: dict[str, int] = {}
 
-        print("Importing reading and writing question bank...", flush=True)
-        english_source, english_count, english_skipped = import_question_pdf(
-            conn,
-            "english",
-            "Reading and Writing Full Question Bank",
-            SOURCE_FILES["english"],
-            limits["english"],
-        )
-        print(f"reading/writing: imported {english_count}, skipped {english_skipped}", flush=True)
+        if "vocabulary" in domains:
+            print("Importing vocabulary...", flush=True)
+            source_id, count, skipped_count = import_vocabulary_pdf(
+                conn, source_files["vocabulary"], limits["vocabulary"]
+            )
+            sources["vocabulary"] = source_id
+            items["vocabulary"] = count
+            skipped["vocabulary"] = skipped_count
+            print(f"vocabulary: imported {count}, skipped {skipped_count}", flush=True)
+
+        if "math" in domains:
+            print("Importing math question bank...", flush=True)
+            source_id, count, skipped_count = import_question_pdf(
+                conn,
+                "math",
+                "Math Full Question Bank",
+                source_files["math"],
+                limits["math"],
+            )
+            sources["math"] = source_id
+            items["math"] = count
+            skipped["math"] = skipped_count
+            print(f"math: imported {count}, skipped {skipped_count}", flush=True)
+
+        if "english" in domains:
+            print("Importing reading and writing question bank...", flush=True)
+            source_id, count, skipped_count = import_question_pdf(
+                conn,
+                "english",
+                "Reading and Writing Full Question Bank",
+                source_files["english"],
+                limits["english"],
+            )
+            sources["english"] = source_id
+            items["english"] = count
+            skipped["english"] = skipped_count
+            print(
+                f"reading/writing: imported {count}, skipped {skipped_count}",
+                flush=True,
+            )
 
         print(
             json.dumps(
                 {
-                    "sources": {
-                        "vocabulary": vocab_source,
-                        "math": math_source,
-                        "english": english_source,
-                    },
-                    "items": {
-                        "vocabulary": vocab_count,
-                        "math": math_count,
-                        "english": english_count,
-                    },
-                    "skipped": {
-                        "vocabulary": vocab_skipped,
-                        "math": math_skipped,
-                        "english": english_skipped,
-                    },
+                    "sources": sources,
+                    "items": items,
+                    "skipped": skipped,
                 },
                 indent=2,
             ),
