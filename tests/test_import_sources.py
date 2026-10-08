@@ -36,6 +36,14 @@ class ExtractedTextCleanupTests(unittest.TestCase):
             "Choice B may result from conceptual or calculation errors.",
         )
 
+    def test_accepts_question_marker_with_pdf_table_commas(self) -> None:
+        self.assertEqual(
+            import_sources.find_line_index(
+                ["Question,,,,,,,"], import_sources.QUESTION_MARKER_RE
+            ),
+            0,
+        )
+
 
 class ChoiceCropTests(unittest.TestCase):
     def test_choice_top_expands_for_formula_image_above_label(self) -> None:

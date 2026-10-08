@@ -56,6 +56,7 @@ PDF_RENDER_SCALE = float(os.environ.get("IMPORT_RENDER_SCALE", "1.8"))
 PDF_CLIP_MARGIN = 6.0
 PDF_MIN_CLIP_HEIGHT = 12.0
 MATH_OUTPUT_ERROR_RE = re.compile(r"\bMath\s+output\s+error\b", re.IGNORECASE)
+QUESTION_MARKER_RE = r"^Question(?:\s*,+)?$"
 
 
 def import_limit(name: str) -> int | None:
@@ -178,6 +179,8 @@ def flush_sections(conn: Any, domains: set[str]) -> None:
         shutil.rmtree(assets_dir / "questions" / domain, ignore_errors=True)
     for source_id in source_ids:
         shutil.rmtree(assets_dir / f"source_{source_id}", ignore_errors=True)
+
+
 def detect_qid(text: str) -> str:
     match = re.search(r"Question ID:\s*([A-Za-z0-9_-]+)", text)
     return app.clean_question_identifier(match.group(1)) if match else ""
@@ -450,7 +453,7 @@ def render_prompt_images(doc: fitz.Document, group: dict[str, Any], domain: str)
     for sequence, page_info in enumerate(group["pages"], start=1):
         page = doc[page_info["page_index"]]
         lines = page_text_line_boxes(page)
-        question_y = first_line_y(lines, r"^Question$")
+        question_y = first_line_y(lines, QUESTION_MARKER_RE)
         answer_y = first_line_y(lines, r"^Answer$")
         stop_y = first_stop_y(lines)
         stop_candidates = [value for value in (answer_y, stop_y) if value is not None]
@@ -653,7 +656,7 @@ def parse_question_group(
     lines: list[str] = []
     for page_info in group["pages"]:
         lines.extend(page_info["lines"])
-    question_index = find_line_index(lines, r"^Question$")
+    question_index = find_line_index(lines, QUESTION_MARKER_RE)
     correct_index = find_line_index(lines, r"^Correct Answer:")
     rationale_index = find_line_index(
         lines,
