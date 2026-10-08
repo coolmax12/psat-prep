@@ -16,9 +16,13 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = (Resolve-Path $RepoRoot).Path
 $UpdateScript = Join-Path $RepoRoot "scripts\update_and_restart.ps1"
+$HiddenRunnerScript = Join-Path $RepoRoot "scripts\run_hidden.vbs"
 
 if (-not (Test-Path -LiteralPath $UpdateScript)) {
     throw "Update script was not found: $UpdateScript"
+}
+if (-not (Test-Path -LiteralPath $HiddenRunnerScript)) {
+    throw "Hidden runner script was not found: $HiddenRunnerScript"
 }
 
 function Quote-TaskArgument {
@@ -32,14 +36,19 @@ if (-not $powerShellExe -or -not (Test-Path -LiteralPath $powerShellExe)) {
     $powerShellExe = (Get-Command powershell.exe -ErrorAction Stop).Source
 }
 
-$arguments = @(
+$wscriptExe = Join-Path $env:WINDIR "System32\wscript.exe"
+if (-not (Test-Path -LiteralPath $wscriptExe)) {
+    $wscriptExe = (Get-Command wscript.exe -ErrorAction Stop).Source
+}
+
+$powerShellArguments = @(
     "-NoProfile",
     "-ExecutionPolicy",
     "Bypass",
     "-File",
-    (Quote-TaskArgument $UpdateScript),
+    $UpdateScript,
     "-RepoRoot",
-    (Quote-TaskArgument $RepoRoot),
+    $RepoRoot,
     "-Remote",
     $Remote,
     "-Branch",
@@ -51,15 +60,20 @@ $arguments = @(
 )
 
 if ($PythonPath) {
-    $arguments += @("-PythonPath", (Quote-TaskArgument $PythonPath))
+    $powerShellArguments += @("-PythonPath", $PythonPath)
 }
 if ($DatabasePath) {
-    $arguments += @("-DatabasePath", (Quote-TaskArgument $DatabasePath))
+    $powerShellArguments += @("-DatabasePath", $DatabasePath)
+}
+
+$hiddenArguments = @("//B", (Quote-TaskArgument $HiddenRunnerScript), (Quote-TaskArgument $powerShellExe))
+foreach ($argument in $powerShellArguments) {
+    $hiddenArguments += (Quote-TaskArgument $argument)
 }
 
 $action = New-ScheduledTaskAction `
-    -Execute $powerShellExe `
-    -Argument ($arguments -join " ") `
+    -Execute $wscriptExe `
+    -Argument ($hiddenArguments -join " ") `
     -WorkingDirectory $RepoRoot
 
 $hourlyTrigger = New-ScheduledTaskTrigger `
