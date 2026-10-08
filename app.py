@@ -30,6 +30,7 @@ PORT = int(os.environ.get("PSAT_PORT", "8080"))
 DOMAINS = ("vocabulary", "math", "english")
 ITEM_TYPES = ("vocab", "multiple_choice")
 DIFFICULTIES = ("Easy", "Medium", "Hard")
+ASSESSMENTS = ("SAT", "PSAT")
 MIN_HARD_TEST_PERCENT = 40
 TOPICS = {
     "math": (
@@ -157,6 +158,9 @@ def table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 
 def migrate_db(conn: sqlite3.Connection) -> None:
+    source_columns = table_columns(conn, "sources")
+    if "assessment" not in source_columns:
+        conn.execute("ALTER TABLE sources ADD COLUMN assessment TEXT NOT NULL DEFAULT ''")
     columns = table_columns(conn, "items")
     if "topic" not in columns:
         conn.execute("ALTER TABLE items ADD COLUMN topic TEXT NOT NULL DEFAULT ''")
@@ -176,6 +180,7 @@ def migrate_db(conn: sqlite3.Connection) -> None:
     conn.executescript(
         """
         CREATE INDEX IF NOT EXISTS idx_items_topic ON items(domain, topic);
+        CREATE INDEX IF NOT EXISTS idx_items_subtopic ON items(domain, subtopic);
         CREATE INDEX IF NOT EXISTS idx_items_difficulty ON items(domain, difficulty);
         CREATE INDEX IF NOT EXISTS idx_items_question_identifier
             ON items(question_identifier);
@@ -262,6 +267,7 @@ def init_db() -> None:
                 kind TEXT NOT NULL DEFAULT 'link',
                 locator TEXT NOT NULL DEFAULT '',
                 notes TEXT NOT NULL DEFAULT '',
+                assessment TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL
             );
 
@@ -315,6 +321,15 @@ def validate_domain(domain: str) -> str:
     if domain not in DOMAINS:
         raise ValueError("Unknown practice area.")
     return domain
+
+
+def validate_assessment(assessment: str, allow_empty: bool = True) -> str:
+    value = (assessment or "").strip().upper()
+    if not value and allow_empty:
+        return ""
+    if value not in ASSESSMENTS:
+        raise ValueError("Assessment must be SAT or PSAT.")
+    return value
 
 
 def canonical_lookup(value: str, options: tuple[str, ...]) -> Optional[str]:
@@ -393,9 +408,67 @@ def validate_filter_values(
     return selected_topics, selected_difficulties
 
 
-def taxonomy() -> dict[str, Any]:
+def validate_subtopic_filter_values(
+    conn: sqlite3.Connection, domain: str, subtopics: list[str]
+) -> list[str]:
+    if domain == "vocabulary" or not subtopics:
+        return []
+    available = tuple(
+        row["subtopic"]
+        for row in conn.execute(
+            """
+            SELECT DISTINCT subtopic
+            FROM items
+            WHERE domain = ? AND active = 1 AND subtopic != ''
+            ORDER BY subtopic COLLATE NOCASE
+            """,
+            (domain,),
+        ).fetchall()
+    )
+    selected: list[str] = []
+    for subtopic in subtopics:
+        canonical = canonical_lookup(subtopic, available)
+        if canonical is None:
+            raise ValueError(f"Choose a valid {domain} subtopic.")
+        if canonical not in selected:
+            selected.append(canonical)
+    return selected
+
+
+def taxonomy(conn: Optional[sqlite3.Connection] = None) -> dict[str, Any]:
+    topics = {domain: list(values) for domain, values in TOPICS.items()}
+    subtopics: dict[str, dict[str, list[str]]] = {domain: {} for domain in DOMAINS}
+    assessments: dict[str, list[str]] = {domain: [] for domain in DOMAINS}
+    if conn is not None:
+        for domain in DOMAINS:
+            rows = conn.execute(
+                """
+                SELECT topic, subtopic
+                FROM items
+                WHERE domain = ? AND active = 1 AND topic != '' AND subtopic != ''
+                GROUP BY topic, subtopic
+                ORDER BY topic, subtopic COLLATE NOCASE
+                """,
+                (domain,),
+            ).fetchall()
+            for row in rows:
+                subtopics[domain].setdefault(row["topic"], []).append(row["subtopic"])
+            assessments[domain] = [
+                row["assessment"]
+                for row in conn.execute(
+                    """
+                    SELECT DISTINCT assessment
+                    FROM sources
+                    WHERE domain = ? AND assessment != ''
+                    ORDER BY assessment
+                    """,
+                    (domain,),
+                ).fetchall()
+            ]
     return {
-        "topics": TOPICS,
+        "topics": topics,
+        "subtopics": subtopics,
+        "assessments": assessments,
         "difficulties": DIFFICULTIES,
     }
 
@@ -408,6 +481,7 @@ def row_to_source(row: sqlite3.Row) -> dict[str, Any]:
         "kind": row["kind"],
         "locator": row["locator"],
         "notes": row["notes"],
+        "assessment": row["assessment"] if "assessment" in row.keys() else "",
         "created_at": row["created_at"],
         "item_count": row["item_count"] if "item_count" in row.keys() else 0,
         "page_count": row["page_count"] if "page_count" in row.keys() else 0,
@@ -1003,7 +1077,7 @@ def app_stats(conn: sqlite3.Connection) -> dict[str, Any]:
             "correct": attempts["correct"] or 0,
         },
         "database": str(DB_PATH),
-        "taxonomy": taxonomy(),
+        "taxonomy": taxonomy(conn),
     }
 
 
@@ -1017,12 +1091,14 @@ def fetch_bucket(
     topics: Optional[list[str]] = None,
     difficulties: Optional[list[str]] = None,
     random_order: bool = False,
+    subtopics: Optional[list[str]] = None,
 ) -> list[sqlite3.Row]:
     if limit <= 0:
         return []
     exclude = exclude or set()
     topics = topics or []
     difficulties = difficulties or []
+    subtopics = subtopics or []
     exclude_sql = ""
     bind: list[Any] = [domain, *params]
     topic_sql = ""
@@ -1035,6 +1111,11 @@ def fetch_bucket(
         placeholders = ",".join("?" for _ in difficulties)
         difficulty_sql = f" AND difficulty IN ({placeholders})"
         bind.extend(difficulties)
+    subtopic_sql = ""
+    if subtopics:
+        placeholders = ",".join("?" for _ in subtopics)
+        subtopic_sql = f" AND subtopic IN ({placeholders})"
+        bind.extend(subtopics)
     if exclude:
         placeholders = ",".join("?" for _ in exclude)
         exclude_sql = f" AND id NOT IN ({placeholders})"
@@ -1049,6 +1130,7 @@ def fetch_bucket(
           AND {where}
           {topic_sql}
           {difficulty_sql}
+          {subtopic_sql}
           {exclude_sql}
         ORDER BY {order_by}
         LIMIT ?
@@ -1067,6 +1149,7 @@ def fetch_balanced_bucket(
     topics: Optional[list[str]] = None,
     difficulties: Optional[list[str]] = None,
     random_order: bool = False,
+    subtopics: Optional[list[str]] = None,
 ) -> list[sqlite3.Row]:
     if limit <= 0:
         return []
@@ -1081,6 +1164,7 @@ def fetch_balanced_bucket(
             topics,
             difficulties,
             random_order,
+            subtopics,
         )
 
     selected: list[sqlite3.Row] = []
@@ -1103,6 +1187,7 @@ def fetch_balanced_bucket(
                 [topic],
                 difficulties,
                 random_order,
+                subtopics,
             )
             if not rows:
                 continue
@@ -1124,6 +1209,7 @@ def fetch_balanced_bucket(
             fallback_topics,
             difficulties,
             random_order,
+            subtopics,
         )
         selected.extend(rows)
     return selected
@@ -1152,6 +1238,7 @@ def fetch_progress_items(
     topics: list[str],
     difficulties: list[str],
     include_exhausted_pool: bool = False,
+    subtopics: Optional[list[str]] = None,
 ) -> list[sqlite3.Row]:
     rows: list[sqlite3.Row] = []
     buckets = normal_pool_buckets()
@@ -1168,6 +1255,7 @@ def fetch_progress_items(
             topics,
             difficulties,
             True,
+            subtopics,
         )
         rows.extend(bucket_rows)
         selected_ids.update(row["id"] for row in bucket_rows)
@@ -1181,6 +1269,7 @@ def normal_pool_has_items(
     domain: str,
     topics: list[str],
     difficulties: list[str],
+    subtopics: Optional[list[str]] = None,
 ) -> bool:
     return bool(
         fetch_bucket(
@@ -1193,6 +1282,7 @@ def normal_pool_has_items(
             topics,
             difficulties,
             True,
+            subtopics,
         )
     )
 
@@ -1204,6 +1294,7 @@ def fetch_fresh_topic_coverage_items(
     selected_ids: set[int],
     topics: list[str],
     difficulties: list[str],
+    subtopics: Optional[list[str]] = None,
 ) -> list[sqlite3.Row]:
     if domain not in ("math", "english") or limit <= 0:
         return []
@@ -1225,6 +1316,59 @@ def fetch_fresh_topic_coverage_items(
             [topic],
             difficulties,
             True,
+            subtopics,
+        )
+        if not rows:
+            continue
+        selected.append(rows[0])
+        selected_ids.add(rows[0]["id"])
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def fetch_fresh_subtopic_coverage_items(
+    conn: sqlite3.Connection,
+    domain: str,
+    limit: int,
+    selected_ids: set[int],
+    topics: list[str],
+    difficulties: list[str],
+    subtopics: list[str],
+    covered_subtopics: Optional[set[str]] = None,
+) -> list[sqlite3.Row]:
+    if domain not in ("math", "english") or limit <= 0:
+        return []
+    subtopic_pool = list(subtopics)
+    if not subtopic_pool:
+        subtopic_pool = [
+            row["subtopic"]
+            for row in conn.execute(
+                """
+                SELECT DISTINCT subtopic
+                FROM items
+                WHERE domain = ? AND active = 1 AND subtopic != ''
+                ORDER BY subtopic COLLATE NOCASE
+                """,
+                (domain,),
+            ).fetchall()
+        ]
+    covered_subtopics = covered_subtopics or set()
+    subtopic_pool = [value for value in subtopic_pool if value not in covered_subtopics]
+    random.shuffle(subtopic_pool)
+    selected: list[sqlite3.Row] = []
+    for subtopic in subtopic_pool:
+        rows = fetch_bucket(
+            conn,
+            domain,
+            1,
+            "seen_count = 0",
+            (),
+            selected_ids,
+            topics,
+            difficulties,
+            True,
+            [subtopic],
         )
         if not rows:
             continue
@@ -1250,12 +1394,14 @@ def choose_items(
     mode: str,
     topics: Optional[list[str]] = None,
     difficulties: Optional[list[str]] = None,
+    subtopics: Optional[list[str]] = None,
 ) -> list[sqlite3.Row]:
     validate_domain(domain)
     count = max(1, min(count, 50))
     now = iso()
     topics = topics or []
     difficulties = difficulties or []
+    subtopics = subtopics or []
 
     if mode == "review":
         rows = fetch_balanced_bucket(
@@ -1268,6 +1414,7 @@ def choose_items(
             topics,
             difficulties,
             True,
+            subtopics,
         )
         rows = list(rows)
         random.shuffle(rows)
@@ -1275,7 +1422,9 @@ def choose_items(
 
     selected: list[sqlite3.Row] = []
     selected_ids: set[int] = set()
-    include_exhausted_pool = not normal_pool_has_items(conn, domain, topics, difficulties)
+    include_exhausted_pool = not normal_pool_has_items(
+        conn, domain, topics, difficulties, subtopics
+    )
 
     coverage_rows = fetch_fresh_topic_coverage_items(
         conn,
@@ -1284,8 +1433,26 @@ def choose_items(
         selected_ids,
         topics,
         difficulties,
+        subtopics,
     )
     selected.extend(coverage_rows)
+
+    hard_reserve = max(
+        0,
+        hard_question_target(domain, count, difficulties)
+        - sum(1 for row in selected if row["difficulty"] == "Hard"),
+    )
+    subtopic_coverage_rows = fetch_fresh_subtopic_coverage_items(
+        conn,
+        domain,
+        max(0, count - len(selected) - hard_reserve),
+        selected_ids,
+        topics,
+        difficulties,
+        subtopics,
+        {row["subtopic"] for row in selected if row["subtopic"]},
+    )
+    selected.extend(subtopic_coverage_rows)
 
     hard_target = max(
         0,
@@ -1301,6 +1468,7 @@ def choose_items(
         topics,
         ["Hard"],
         include_exhausted_pool,
+        subtopics,
     )
     selected.extend(hard_rows)
 
@@ -1320,6 +1488,7 @@ def choose_items(
         topics,
         difficulties,
         True,
+        subtopics,
     )
     selected.extend(review_rows)
     selected_ids.update(row["id"] for row in review_rows)
@@ -1334,6 +1503,7 @@ def choose_items(
             topics,
             difficulties,
             include_exhausted_pool,
+            subtopics,
         )
     )
     random.shuffle(selected)
@@ -1868,22 +2038,36 @@ def create_session(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[st
         list_payload(payload.get("topics")),
         list_payload(payload.get("difficulties")),
     )
+    selected_subtopics = validate_subtopic_filter_values(
+        conn,
+        domain,
+        list_payload(payload.get("subtopics")),
+    )
     if direction not in ("mixed", "word_to_definition", "definition_to_word"):
         raise ValueError("Unknown vocabulary direction.")
     if mode == "flashcards":
         domain = "vocabulary"
-        selected_topics, selected_difficulties = [], []
+        selected_topics, selected_subtopics, selected_difficulties = [], [], []
     if mode not in ("test", "review", "flashcards"):
         raise ValueError("Unknown session mode.")
 
     rows = (
         choose_flashcards(conn)
         if mode == "flashcards"
-        else choose_items(conn, domain, count, mode, selected_topics, selected_difficulties)
+        else choose_items(
+            conn,
+            domain,
+            count,
+            mode,
+            selected_topics,
+            selected_difficulties,
+            selected_subtopics,
+        )
     )
     cards = [session_card(conn, row, mode, direction) for row in rows]
     filters = {
         "topics": selected_topics,
+        "subtopics": selected_subtopics,
         "difficulties": selected_difficulties,
     }
     if mode in ("test", "review") and cards:
@@ -2090,7 +2274,7 @@ class PrepHandler(BaseHTTPRequestHandler):
             if path == "/api/stats":
                 self.send_json(app_stats(conn))
             elif path == "/api/taxonomy":
-                self.send_json(taxonomy())
+                self.send_json(taxonomy(conn))
             elif path == "/api/sessions/active":
                 self.send_json({"sessions": active_sessions(conn)})
             elif path == "/api/sessions/completed":
@@ -2125,10 +2309,12 @@ class PrepHandler(BaseHTTPRequestHandler):
                 title = str(payload.get("title", "")).strip()
                 if not title:
                     raise ValueError("Source title is required.")
+                assessment = validate_assessment(str(payload.get("assessment", "")))
                 cur = conn.execute(
                     """
-                    INSERT INTO sources (title, domain, kind, locator, notes, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO sources (
+                        title, domain, kind, locator, notes, assessment, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         title,
@@ -2136,6 +2322,7 @@ class PrepHandler(BaseHTTPRequestHandler):
                         str(payload.get("kind", "link")).strip() or "link",
                         str(payload.get("locator", "")).strip(),
                         str(payload.get("notes", "")).strip(),
+                        assessment,
                         iso(),
                     ),
                 )

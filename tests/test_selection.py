@@ -10,6 +10,15 @@ def make_conn(include_flagged: bool = True) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute(
         """
+        CREATE TABLE sources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            domain TEXT NOT NULL,
+            assessment TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             domain TEXT NOT NULL,
@@ -96,18 +105,20 @@ def add_item(
     correct_count: int = 0,
     wrong_count: int = 0,
     needs_review: int = 0,
+    subtopic: str = "",
 ) -> int:
     cur = conn.execute(
         """
         INSERT INTO items (
-            domain, prompt, answer, topic, difficulty, seen_count,
+            domain, prompt, answer, topic, subtopic, difficulty, seen_count,
             correct_count, wrong_count, needs_review
-        ) VALUES (?, ?, 'A', ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, 'A', ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             domain,
             f"{topic} {difficulty}",
             topic,
+            subtopic,
             difficulty,
             seen_count,
             correct_count,
@@ -161,6 +172,50 @@ class ChooseItemsTests(unittest.TestCase):
 
         self.assertEqual(topics, set(selected_topics))
 
+    def test_subtopic_filter_limits_test_and_review_items(self) -> None:
+        conn = make_conn()
+        topic = "Geometry and Trigonometry"
+        circle_id = add_item(
+            conn, "math", topic, needs_review=1, subtopic="Circles"
+        )
+        add_item(conn, "math", topic, needs_review=1, subtopic="Area and volume")
+
+        test_rows = app.choose_items(
+            conn, "math", 10, "test", [topic], [], ["Circles"]
+        )
+        review_rows = app.choose_items(
+            conn, "math", 10, "review", [topic], [], ["Circles"]
+        )
+
+        self.assertEqual([row["id"] for row in test_rows], [circle_id])
+        self.assertEqual([row["id"] for row in review_rows], [circle_id])
+
+    def test_subtopic_coverage_preserves_topic_and_hard_targets(self) -> None:
+        conn = make_conn()
+        for index, topic in enumerate(app.TOPICS["math"]):
+            add_item(conn, "math", topic, "Medium", subtopic=f"Base {index}")
+        for index in range(8):
+            add_item(
+                conn,
+                "math",
+                "Algebra",
+                "Medium",
+                subtopic=f"Extra {index}",
+            )
+        for index in range(8):
+            add_item(
+                conn,
+                "math",
+                "Advanced Math",
+                "Hard",
+                subtopic=f"Hard {index}",
+            )
+
+        rows = app.choose_items(conn, "math", 10, "test")
+
+        self.assertEqual({row["topic"] for row in rows}, set(app.TOPICS["math"]))
+        self.assertGreaterEqual(sum(row["difficulty"] == "Hard" for row in rows), 4)
+        self.assertGreaterEqual(len({row["subtopic"] for row in rows}), 6)
     def test_hard_target_still_counts_coverage_items(self) -> None:
         conn = make_conn()
         for topic in app.TOPICS["math"]:
@@ -202,6 +257,53 @@ class ChooseItemsTests(unittest.TestCase):
         rows = app.choose_items(conn, "math", 2, "test")
 
         self.assertEqual({row["id"] for row in rows}, item_ids)
+
+
+class TaxonomyTests(unittest.TestCase):
+    def test_taxonomy_reflects_active_assessment_and_subtopics(self) -> None:
+        conn = make_conn()
+        conn.execute(
+            "INSERT INTO sources (domain, assessment) VALUES ('math', 'SAT')"
+        )
+        add_item(
+            conn,
+            "math",
+            "Geometry and Trigonometry",
+            subtopic="Circles",
+        )
+
+        result = app.taxonomy(conn)
+
+        self.assertEqual(result["assessments"]["math"], ["SAT"])
+        self.assertIn(
+            "Circles",
+            result["subtopics"]["math"]["Geometry and Trigonometry"],
+        )
+
+    def test_session_persists_subtopic_filters(self) -> None:
+        conn = make_conn()
+        add_item(
+            conn,
+            "math",
+            "Geometry and Trigonometry",
+            needs_review=1,
+            subtopic="Circles",
+        )
+
+        session = app.create_session(
+            conn,
+            {
+                "domain": "math",
+                "mode": "review",
+                "count": 10,
+                "topics": ["Geometry and Trigonometry"],
+                "subtopics": ["Circles"],
+                "difficulties": ["Medium"],
+            },
+        )
+
+        self.assertEqual(session["filters"]["subtopics"], ["Circles"])
+        self.assertEqual(session["count"], 1)
 
 
 class ProgressUpdateTests(unittest.TestCase):

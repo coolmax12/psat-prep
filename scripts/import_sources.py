@@ -57,6 +57,12 @@ PDF_CLIP_MARGIN = 6.0
 PDF_MIN_CLIP_HEIGHT = 12.0
 MATH_OUTPUT_ERROR_RE = re.compile(r"\bMath\s+output\s+error\b", re.IGNORECASE)
 QUESTION_MARKER_RE = r"^Question(?:\s*,+)?$"
+SUBTOPIC_ALIASES = {
+    "Ratios, rates, propor tional relationships, and units": (
+        "Ratios, rates, proportional relationships, and units"
+    ),
+    "Cross-text Connections": "Cross-Text Connections",
+}
 
 
 def import_limit(name: str) -> int | None:
@@ -113,13 +119,16 @@ def compact_text(lines: list[str]) -> str:
     return clean_line(" ".join(lines))
 
 
-def create_source(conn: Any, title: str, domain: str, pdf_path: Path) -> int:
+def create_source(
+    conn: Any, title: str, domain: str, pdf_path: Path, assessment: str
+) -> int:
     cur = conn.execute(
         """
-        INSERT INTO sources (title, domain, kind, locator, notes, created_at)
-        VALUES (?, ?, 'pdf', ?, '', ?)
+        INSERT INTO sources (
+            title, domain, kind, locator, notes, assessment, created_at
+        ) VALUES (?, ?, 'pdf', ?, '', ?, ?)
         """,
-        (title, domain, str(pdf_path.relative_to(ROOT)), app.iso()),
+        (title, domain, str(pdf_path.relative_to(ROOT)), assessment, app.iso()),
     )
     return int(cur.lastrowid)
 
@@ -251,7 +260,8 @@ def metadata_from_lines(lines: list[str], domain: str, q_index: int) -> tuple[st
     difficulty = metadata[difficulty_index]
     topic_tokens = metadata[:difficulty_index]
     topic, subtopic_tokens = match_topic(topic_tokens, topics)
-    return topic, compact_text(subtopic_tokens), difficulty
+    subtopic = compact_text(subtopic_tokens)
+    return topic, SUBTOPIC_ALIASES.get(subtopic, subtopic), difficulty
 
 
 def find_line_index(lines: list[str], pattern: str, start: int = 0) -> int:
@@ -741,9 +751,14 @@ def parse_question_group(
 
 
 def import_question_pdf(
-    conn: Any, domain: str, title: str, pdf_path: Path, limit: int | None = None
+    conn: Any,
+    domain: str,
+    title: str,
+    pdf_path: Path,
+    assessment: str,
+    limit: int | None = None,
 ) -> tuple[int, int, int]:
-    source_id = create_source(conn, title, domain, pdf_path)
+    source_id = create_source(conn, title, domain, pdf_path, assessment)
     doc = fitz.open(str(pdf_path))
     groups = group_question_pages(doc)
     if limit is not None:
@@ -809,8 +824,10 @@ def parse_vocabulary_entries(lines: list[str]) -> dict[str, list[str]]:
     return entries
 
 
-def import_vocabulary_pdf(conn: Any, pdf_path: Path, limit: int | None = None) -> tuple[int, int, int]:
-    source_id = create_source(conn, "SAT Vocabulary", "vocabulary", pdf_path)
+def import_vocabulary_pdf(
+    conn: Any, pdf_path: Path, assessment: str, limit: int | None = None
+) -> tuple[int, int, int]:
+    source_id = create_source(conn, "SAT Vocabulary", "vocabulary", pdf_path, assessment)
     doc = fitz.open(str(pdf_path))
     lines: list[str] = []
     for page_index, page in enumerate(doc, start=1):
@@ -865,17 +882,37 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="confirm the destructive section replacement without prompting",
     )
+    parser.add_argument(
+        "--assessment",
+        choices=("sat", "psat"),
+        help="assessment represented by the selected source PDFs",
+    )
     return parser.parse_args()
 
 
-def confirm_flush(domains: tuple[str, ...]) -> bool:
+def resolve_assessment(args: argparse.Namespace) -> str:
+    if args.assessment:
+        return app.validate_assessment(args.assessment, allow_empty=False)
+    if args.yes:
+        raise SystemExit("--assessment sat or --assessment psat is required with --yes")
+    try:
+        value = input("Are the selected question-bank PDFs SAT or PSAT? [SAT/PSAT]: ")
+    except EOFError as exc:
+        raise SystemExit("Assessment type is required.") from exc
+    try:
+        return app.validate_assessment(value, allow_empty=False)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def confirm_flush(domains: tuple[str, ...], assessment: str) -> bool:
     labels = {
         "vocabulary": "Vocabulary",
         "math": "Math",
         "english": "Reading and Writing",
     }
     selected = ", ".join(labels[domain] for domain in domains)
-    print(f"Selected sections: {selected}")
+    print(f"Selected assessment and sections: {assessment} / {selected}")
     print(
         "This will permanently remove their questions, attempts, wrong-answer and "
         "review state, test sessions/history, source pages, and generated media "
@@ -900,7 +937,8 @@ def main() -> None:
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
 
-    if not args.yes and not confirm_flush(domains):
+    assessment = resolve_assessment(args)
+    if not args.yes and not confirm_flush(domains, assessment):
         print("Import cancelled; the database was not changed.")
         return
 
@@ -927,7 +965,10 @@ def main() -> None:
         if "vocabulary" in domains:
             print("Importing vocabulary...", flush=True)
             source_id, count, skipped_count = import_vocabulary_pdf(
-                conn, source_files["vocabulary"], limits["vocabulary"]
+                conn,
+                source_files["vocabulary"],
+                assessment,
+                limits["vocabulary"],
             )
             sources["vocabulary"] = source_id
             items["vocabulary"] = count
@@ -939,8 +980,9 @@ def main() -> None:
             source_id, count, skipped_count = import_question_pdf(
                 conn,
                 "math",
-                "Math Full Question Bank",
+                f"{assessment} Math Question Bank",
                 source_files["math"],
+                assessment,
                 limits["math"],
             )
             sources["math"] = source_id
@@ -953,8 +995,9 @@ def main() -> None:
             source_id, count, skipped_count = import_question_pdf(
                 conn,
                 "english",
-                "Reading and Writing Full Question Bank",
+                f"{assessment} Reading and Writing Question Bank",
                 source_files["english"],
+                assessment,
                 limits["english"],
             )
             sources["english"] = source_id

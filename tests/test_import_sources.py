@@ -44,6 +44,24 @@ class ExtractedTextCleanupTests(unittest.TestCase):
             0,
         )
 
+    def test_normalizes_known_pdf_subtopic_artifacts(self) -> None:
+        lines = [
+            "Math",
+            "Problem-Solving and Data Analysis",
+            "Ratios, rates, propor tional relationships, and units",
+            "Medium",
+            "Question",
+        ]
+
+        self.assertEqual(
+            import_sources.metadata_from_lines(lines, "math", 4),
+            (
+                "Problem-Solving and Data Analysis",
+                "Ratios, rates, proportional relationships, and units",
+                "Medium",
+            ),
+        )
+
 
 class ChoiceCropTests(unittest.TestCase):
     def test_choice_top_expands_for_formula_image_above_label(self) -> None:
@@ -201,11 +219,11 @@ class SectionFlushTests(unittest.TestCase):
 class FlushConfirmationTests(unittest.TestCase):
     def test_confirmation_defaults_to_no(self) -> None:
         with mock.patch("builtins.input", return_value=""):
-            self.assertFalse(import_sources.confirm_flush(("math", "english")))
+            self.assertFalse(import_sources.confirm_flush(("math", "english"), "SAT"))
 
     def test_confirmation_accepts_yes(self) -> None:
         with mock.patch("builtins.input", return_value="yes"):
-            self.assertTrue(import_sources.confirm_flush(("math",)))
+            self.assertTrue(import_sources.confirm_flush(("math",), "PSAT"))
 
 
 if __name__ == "__main__":

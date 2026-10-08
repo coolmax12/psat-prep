@@ -20,6 +20,8 @@ const fallbackTaxonomy = {
       "Standard English Conventions",
     ],
   },
+  subtopics: { vocabulary: {}, math: {}, english: {} },
+  assessments: { vocabulary: [], math: [], english: [] },
   difficulties: ["Easy", "Medium", "Hard"],
 };
 
@@ -94,6 +96,17 @@ function escapeHtml(value) {
 function topicsFor(domain) {
   const topics = state.taxonomy && state.taxonomy.topics;
   return (topics && topics[domain]) || [];
+}
+
+function subtopicsFor(domain) {
+  const mappings = state.taxonomy && state.taxonomy.subtopics;
+  const byTopic = (mappings && mappings[domain]) || {};
+  return Object.values(byTopic).flat();
+}
+
+function assessmentsFor(domain) {
+  const assessments = state.taxonomy && state.taxonomy.assessments;
+  return (assessments && assessments[domain]) || [];
 }
 
 function difficulties() {
@@ -181,11 +194,13 @@ function prepareFlashDeck() {
 function getDashboardFilters(domain) {
   const card = $(`[data-domain-card="${domain}"]`);
   if (!card || domain === "vocabulary") {
-    return { topics: [], difficulties: [] };
+    return { topics: [], subtopics: [], difficulties: [] };
   }
   const topicValues = topicsFor(domain);
+  const subtopicValues = subtopicsFor(domain);
   const difficultyValues = difficulties();
   const topics = selectedCheckboxValues(card, "topics");
+  const subtopics = selectedCheckboxValues(card, "subtopics");
   const selectedDifficulties = selectedCheckboxValues(card, "difficulties");
   if (!topics.length) {
     throw new Error("Choose at least one topic.");
@@ -193,8 +208,12 @@ function getDashboardFilters(domain) {
   if (!selectedDifficulties.length) {
     throw new Error("Choose at least one difficulty.");
   }
+  if (subtopicValues.length && !subtopics.length) {
+    throw new Error("Choose at least one subtopic.");
+  }
   return {
     topics: topics.length === topicValues.length ? [] : topics,
+    subtopics: subtopics.length === subtopicValues.length ? [] : subtopics,
     difficulties:
       selectedDifficulties.length === difficultyValues.length ? [] : selectedDifficulties,
   };
@@ -203,10 +222,14 @@ function getDashboardFilters(domain) {
 function filterSummary(domain, filters = {}) {
   if (domain === "vocabulary") return "";
   const topics = filters.topics && filters.topics.length ? filters.topics.join(", ") : "All topics";
+  const subtopics =
+    filters.subtopics && filters.subtopics.length
+      ? filters.subtopics.join(", ")
+      : "All subtopics";
   const diffs = filters.difficulties && filters.difficulties.length
     ? filters.difficulties.join(", ")
     : "All difficulties";
-  return `${topics} / ${diffs}`;
+  return `${topics} / ${subtopics} / ${diffs}`;
 }
 
 function questionMeta(item) {
@@ -474,12 +497,18 @@ function renderDashboard() {
     .map(([domain, label]) => {
       const stats = (state.stats && state.stats.domains && state.stats.domains[domain]) || {};
       const topicValues = topicsFor(domain);
+      const subtopicValues = subtopicsFor(domain);
+      const assessmentLabel = assessmentsFor(domain).join(" + ");
       const filters =
         topicValues.length > 0
           ? `
             <div class="filter-block">
               <div class="filter-title">Topics</div>
               <div class="check-grid">${checkboxGroup("topics", topicValues)}</div>
+            </div>
+            <div class="filter-block">
+              <div class="filter-title">Subtopics</div>
+              <div class="check-grid">${checkboxGroup("subtopics", subtopicValues)}</div>
             </div>
             <div class="filter-block">
               <div class="filter-title">Difficulty</div>
@@ -492,7 +521,7 @@ function renderDashboard() {
           <header>
             <div>
               <h3>${label}</h3>
-              <p>${domain === "english" ? "Reading, comprehension, grammar" : "Practice area"}</p>
+              <p>${assessmentLabel ? `${escapeHtml(assessmentLabel)} question bank` : domain === "english" ? "Reading, comprehension, grammar" : "Practice area"}</p>
             </div>
             <span class="badge">${stats.total || 0}</span>
           </header>
@@ -539,7 +568,16 @@ function renderDashboard() {
     button.addEventListener("click", () => {
       $("#review-domain").value = button.dataset.review;
       showView("review");
-      startSession(button.dataset.review, "review", "#review-panel");
+      try {
+        startSession(
+          button.dataset.review,
+          "review",
+          "#review-panel",
+          getDashboardFilters(button.dataset.review)
+        );
+      } catch (error) {
+        toast(error.message);
+      }
     });
   });
 }
@@ -709,13 +747,14 @@ async function startSession(
 ) {
   const count = countOverride || sessionSize(mode);
   const direction = mode === "flashcards" ? $("#flash-direction").value : "mixed";
-  const selectedFilters = filters || { topics: [], difficulties: [] };
+  const selectedFilters = filters || { topics: [], subtopics: [], difficulties: [] };
   const payload = {
     domain,
     mode,
     count,
     direction,
     topics: selectedFilters.topics,
+    subtopics: selectedFilters.subtopics,
     difficulties: selectedFilters.difficulties,
   };
   const session = anchorSessionTimer(await api("/api/session", {
@@ -753,7 +792,7 @@ async function startSession(
 async function resumeSession(sessionId) {
   const session = anchorSessionTimer(await api(`/api/session?session_id=${encodeURIComponent(sessionId)}`));
   state.session = session;
-  state.session.filters = session.filters || { topics: [], difficulties: [] };
+  state.session.filters = session.filters || { topics: [], subtopics: [], difficulties: [] };
   state.session.requestedCount = session.requested_count || session.count || 10;
   state.index = firstUnansweredIndex(session);
   state.score = 0;
@@ -1523,7 +1562,12 @@ function bindEvents() {
   });
 
   $("#start-review").addEventListener("click", () => {
-    startSession($("#review-domain").value, "review", "#review-panel");
+    const domain = $("#review-domain").value;
+    try {
+      startSession(domain, "review", "#review-panel", getDashboardFilters(domain));
+    } catch (error) {
+      toast(error.message);
+    }
   });
 
   $("#start-flashcards").addEventListener("click", () => {

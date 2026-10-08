@@ -5,8 +5,8 @@ PSAT Prep is a lightweight local web app for building and practicing from a pers
 The app helps students practice with:
 
 - Vocabulary tests and flashcards
-- Math practice by topic and difficulty
-- Reading and Writing practice by topic and difficulty
+- Math practice by topic, subtopic, and difficulty
+- Reading and Writing practice by topic, subtopic, and difficulty
 - Review of missed questions
 - Saved in-progress tests with editable answers and unrestricted Back/Next navigation
 - Persistent per-question review flags that are independent of answer status
@@ -410,7 +410,7 @@ After the PDFs are in place, run:
 python3 scripts/import_sources.py
 ```
 
-By default, this replaces Math and Reading/Writing while preserving Vocabulary. The importer asks for confirmation before changing the database. Select sections explicitly when needed:
+By default, this replaces Math and Reading/Writing while preserving Vocabulary. The importer asks whether the PDFs are SAT or PSAT, records that assessment on the imported sources, and asks for confirmation before changing the database. Select sections explicitly when needed:
 
 ```bash
 python3 scripts/import_sources.py --sections math
@@ -418,7 +418,14 @@ python3 scripts/import_sources.py --sections english
 python3 scripts/import_sources.py --sections vocabulary
 ```
 
-Use `english` for Reading and Writing. For unattended runs, add `--yes` only after verifying the selected sections. For each selected section, the importer clears:
+Use `english` for Reading and Writing. For unattended runs, provide both the assessment and confirmation only after verifying the selected sections:
+
+```bash
+python3 scripts/import_sources.py --sections math english --assessment sat --yes
+python3 scripts/import_sources.py --sections math english --assessment psat --yes
+```
+
+For each selected section, the importer clears:
 
 - sources
 - source pages
@@ -436,7 +443,8 @@ The importer stores:
 - correct answers
 - explanations/rationales
 - top-level topics
-- extracted subtopics
+- extracted and normalized subtopics
+- SAT or PSAT source identity
 - Easy/Medium/Hard difficulty
 - question identifiers from the source PDFs
 - source page text
@@ -458,7 +466,7 @@ IMPORT_LIMIT_VOCABULARY=20 IMPORT_LIMIT_MATH=10 IMPORT_LIMIT_ENGLISH=10 python3 
 
 1. Start from the Dashboard.
 2. Pick Vocabulary, Math, or Reading and Writing.
-3. For Math and Reading/Writing, choose one or more topics and difficulties.
+3. For Math and Reading/Writing, choose one or more topics, subtopics, and difficulties. All are selected by default.
 4. Choose a test size: 10, 20, or 30 questions.
 5. Use the sticky Back and Next controls to move through every question in any order, including skipping questions and changing saved answers.
 6. Watch elapsed test time in the sticky bottom action row while practicing.
@@ -478,7 +486,7 @@ For imported Math and Reading/Writing questions, answer choices stay in source P
 
 Missed questions stay flagged for Review Incorrect and are also randomly reinjected into future normal tests. A later correct answer clears that review flag, including when the correction happens in a normal test.
 
-For Math and Reading/Writing, normal tests first try to include one fresh question from each selected top-level topic. If no topic filter is selected, this means all four official topics for that section. Topics that have no fresh questions left in the selected filters are skipped for this coverage pass. The sampler still targets at least 40% Hard questions when Hard questions are available in the active pool for the selected filters, then fills remaining slots from unseen and still-missed questions. Once that active pool is exhausted, due and older seen questions can cycle back in.
+For Math and Reading/Writing, normal tests first try to include one fresh question from each selected top-level topic. If no topic filter is selected, this means all four official topics for that section. Topics that have no fresh questions left in the selected filters are skipped for this coverage pass. Remaining nonreserved slots broaden fresh subtopic coverage when possible. The sampler reserves enough capacity to keep targeting at least 40% Hard questions when Hard questions are available in the selected filters, then fills remaining slots from unseen and still-missed questions. Once that active pool is exhausted, due and older seen questions can cycle back in.
 
 Correct answers increase mastery, clear any missed-review flag, and hold the item out until the active pool is exhausted. Wrong answers reset mastery, mark the item for review, and put it back into the active pool.
 
